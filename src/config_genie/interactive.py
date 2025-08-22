@@ -37,6 +37,23 @@ class InteractiveSession(cmd.Cmd):
         # Load inventory if provided
         if inventory_path:
             self._load_inventory(inventory_path)
+        else:
+            # Try to auto-load devices.yaml from various locations
+            import os
+            potential_paths = [
+                'devices.yaml',  # Current directory
+                'config-genie/devices.yaml',  # config-genie subdirectory
+                os.path.expanduser('~/config-genie/devices.yaml')  # Home directory
+            ]
+            
+            for path in potential_paths:
+                if os.path.exists(path):
+                    try:
+                        self.inventory.load_yaml(path)
+                        console.print(f"[green]✓ Auto-loaded {len(self.inventory.devices)} devices from {path}[/green]")
+                        break
+                    except Exception as e:
+                        console.print(f"[yellow]⚠ Could not auto-load {path}: {e}[/yellow]")
     
     def run(self) -> None:
         """Start the interactive session."""
@@ -137,12 +154,12 @@ class InteractiveSession(cmd.Cmd):
             status = "selected" if device in self.selected_devices else "-"
             
             table.add_row(
-                device.name,
-                device.ip_address,
-                device.model or "-",
-                device.site or "-",
-                device.role or "-",
-                status
+                str(device.name),
+                str(device.ip_address),
+                str(device.model or "-"),
+                str(device.site or "-"),
+                str(device.role or "-"),
+                str(status)
             )
         
         console.print(table)
@@ -251,6 +268,7 @@ class InteractiveSession(cmd.Cmd):
             if conn and conn.connected:
                 connected_devices.append(device)
         
+        # Check if we have connected devices
         if not connected_devices:
             console.print("[red]No connected devices. Use 'connect' command first.[/red]")
             return
@@ -270,8 +288,34 @@ class InteractiveSession(cmd.Cmd):
             for device in connected_devices:
                 console.print(f"  • {device.name} ({device.ip_address})")
         else:
-            # Placeholder for actual execution
-            console.print("[green]✓[/green] Command executed (implementation pending)")
+            # Execute command using execution manager
+            from .execution import ExecutionManager
+            execution_manager = ExecutionManager(self.connection_manager)
+            
+            plan = execution_manager.create_execution_plan(
+                devices=connected_devices,
+                commands=[arg],
+                dry_run=False,
+                validate=False  # Skip validation for single commands
+            )
+            
+            results = execution_manager.execute_plan(plan)
+            
+            # Display results
+            for device_name, result in results.items():
+                console.print(f"\n[bold cyan]═══ {device_name} ═══[/bold cyan]")
+                
+                if result.status.value == "success":
+                    if result.output and result.output.strip():
+                        # Print raw output to stdout
+                        print(result.output)
+                    else:
+                        console.print("[green]✓ Command completed successfully (no output)[/green]")
+                else:
+                    console.print(f"[red]✗ Command failed: {result.error}[/red]")
+                
+                if result.execution_time:
+                    console.print(f"[dim]Execution time: {result.execution_time:.2f}s[/dim]")
         
         # Record in history
         self.session_history.append({
@@ -299,7 +343,7 @@ class InteractiveSession(cmd.Cmd):
         table.add_column("Mode")
         
         for i, entry in enumerate(self.session_history, 1):
-            devices_str = ", ".join(entry['devices'][:3])
+            devices_str = ", ".join(str(d) for d in entry['devices'][:3])
             if len(entry['devices']) > 3:
                 devices_str += f" (+{len(entry['devices']) - 3} more)"
             
@@ -347,6 +391,7 @@ class InteractiveSession(cmd.Cmd):
         except Exception as e:
             console.print(f"[red]Error loading inventory: {str(e)}[/red]")
     
+
     def _cleanup(self) -> None:
         """Clean up session resources."""
         self.connection_manager.disconnect_all()

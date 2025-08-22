@@ -189,9 +189,24 @@ class ExecutionManager:
             # Execute show commands directly
             for command in show_commands:
                 try:
-                    output = connection.send_command(command)
-                    output_lines.append(f"# {command}")
-                    output_lines.append(output)
+                    # Handle enable command specially
+                    if command.strip().lower() == 'enable':
+                        success = connection.enter_enable_mode()
+                        output_lines.append(f"# {command}")
+                        if success:
+                            output_lines.append("Entered privileged mode")
+                        else:
+                            return ExecutionResult(
+                                device_name=device.name,
+                                status=ExecutionStatus.FAILED,
+                                commands=commands,
+                                error="Failed to enter privileged mode",
+                                execution_time=time.time() - start_time
+                            )
+                    else:
+                        output = connection.send_command(command)
+                        output_lines.append(f"# {command}")
+                        output_lines.append(output)
                 except Exception as e:
                     return ExecutionResult(
                         device_name=device.name,
@@ -204,6 +219,16 @@ class ExecutionManager:
             # Execute configuration commands
             if config_commands:
                 try:
+                    # Check if we need privileged mode for config commands
+                    if not connection.privileged:
+                        return ExecutionResult(
+                            device_name=device.name,
+                            status=ExecutionStatus.FAILED,
+                            commands=commands,
+                            error="Configuration commands require privileged mode. Use 'enable' command first.",
+                            execution_time=time.time() - start_time
+                        )
+                    
                     config_output = connection.send_config_commands(config_commands)
                     for command, output in config_output.items():
                         output_lines.append(f"(config)# {command}")
@@ -247,8 +272,8 @@ class ExecutionManager:
             if not command or command.startswith('!'):
                 continue
             
-            # Skip show commands and other exec commands
-            if not command.lower().startswith(('show', 'ping', 'traceroute', 'telnet', 'ssh')):
+            # Skip show commands and other exec commands (including abbreviations)
+            if not command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'telnet', 'ssh', 'display', 'dis ', 'enable', 'exit', 'quit')):
                 config_commands.append(command)
         
         return config_commands
@@ -258,7 +283,8 @@ class ExecutionManager:
         show_commands = []
         for command in commands:
             command = command.strip()
-            if command.lower().startswith(('show', 'ping', 'traceroute')):
+            # Support common Cisco abbreviations and exec commands
+            if command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'display', 'dis ', 'enable', 'exit', 'quit')):
                 show_commands.append(command)
         
         return show_commands

@@ -120,8 +120,10 @@ class CiscoSSHConnector:
     
     def send_config_commands(self, commands: List[str]) -> Dict[str, str]:
         """Send configuration commands and return results."""
-        if not self.connected or not self.privileged:
-            raise ConnectionError("Must be connected and in privileged mode")
+        if not self.connected:
+            raise ConnectionError("Not connected to device")
+        if not self.privileged:
+            raise ConnectionError("Must be in privileged mode for configuration commands")
         
         results = {}
         

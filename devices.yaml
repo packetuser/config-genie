@@ -1,0 +1,6 @@
+devices:
+    - name: 317
+      ip_address: 10.1.100.30
+      model: 2960X
+      site: 100
+      role: access
