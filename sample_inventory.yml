@@ -1,0 +1,18 @@
+devices:
+  - name: sw01-hq
+    ip_address: 192.168.1.10
+    model: 2960X
+    site: HQ
+    role: access
+  
+  - name: sw02-hq
+    ip_address: 192.168.1.11
+    model: 9300
+    site: HQ
+    role: distribution
+  
+  - name: sw01-branch
+    ip_address: 192.168.2.10
+    model: 2960X
+    site: Branch
+    role: access
