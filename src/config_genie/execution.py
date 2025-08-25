@@ -273,7 +273,8 @@ class ExecutionManager:
                 continue
             
             # Skip show commands and other exec commands (including abbreviations)
-            if not command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'telnet', 'ssh', 'display', 'dis ', 'enable', 'exit', 'quit')):
+            # 'config t' and 'configure terminal' are EXEC commands to enter config mode, not config commands
+            if not command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'telnet', 'ssh', 'display', 'dis ', 'enable', 'exit', 'quit', 'config', 'conf ')):
                 config_commands.append(command)
         
         return config_commands
@@ -284,7 +285,7 @@ class ExecutionManager:
         for command in commands:
             command = command.strip()
             # Support common Cisco abbreviations and exec commands
-            if command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'display', 'dis ', 'enable', 'exit', 'quit')):
+            if command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'display', 'dis ', 'enable', 'exit', 'quit', 'config', 'conf ')):
                 show_commands.append(command)
         
         return show_commands

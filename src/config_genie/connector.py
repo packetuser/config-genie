@@ -21,8 +21,9 @@ class CiscoSSHConnector:
         username: str, 
         password: str,
         enable_password: Optional[str] = None,
-        timeout: int = 30,
-        banner_timeout: int = 15
+        timeout: int = 8,
+        banner_timeout: int = 15,
+        debug_mode: bool = False
     ):
         self.device = device
         self.username = username
@@ -30,11 +31,17 @@ class CiscoSSHConnector:
         self.enable_password = enable_password
         self.timeout = timeout
         self.banner_timeout = banner_timeout
+        self.debug_mode = debug_mode
         
         self.ssh_client = None
         self.shell = None
         self.connected = False
         self.privileged = False
+    
+    def _debug_print(self, message: str, prefix: str = "DEBUG") -> None:
+        """Print debug message if debug mode is enabled."""
+        if self.debug_mode:
+            print(f"[{prefix}] {self.device.name}: {message}")
     
     def connect(self) -> bool:
         """Establish SSH connection to the device."""
@@ -67,6 +74,26 @@ class CiscoSSHConnector:
             self._send_command("terminal length 0")
             self._send_command("terminal width 0")
             
+            # Check if we're already in privileged mode by checking if prompt ends with #
+            # We can see from previous commands if the prompt was already #
+            try:
+                # Send a simple show command to see current privilege
+                output = self._send_command("show privilege")
+                if "privilege level 15" in output.lower() or "current privilege level is 15" in output.lower():
+                    self._debug_print("Already in privileged mode (level 15)", "SUCCESS")
+                    self.privileged = True
+                elif "#" in output:  # Fallback check for # in output
+                    self._debug_print("Already in privileged mode (# detected)", "SUCCESS")
+                    self.privileged = True
+                else:
+                    self._debug_print("Not in privileged mode", "INFO")
+                    self.privileged = False
+            except:
+                # If privilege check fails, try to determine from previous command responses
+                # Since we just ran terminal commands successfully, check if device shows privilege
+                self._debug_print("Privilege check failed, assuming not privileged", "WARN")
+                self.privileged = False
+            
             self.connected = True
             return True
             
@@ -89,24 +116,57 @@ class CiscoSSHConnector:
                 self.privileged = True
                 return True
             
-            # Enter enable mode
-            if not self.enable_password:
-                raise ValueError("Enable password required but not provided")
-            
+            # Simple enable mode approach - just send enable and test with a command
+            self._debug_print("Sending 'enable' command", "SEND")
             self.shell.send("enable\n")
-            time.sleep(1)
+            time.sleep(2)  # Give it time to process
             
-            # Send enable password
-            self.shell.send(f"{self.enable_password}\n")
-            time.sleep(2)
+            # Read any available output (could be password prompt or new prompt)
+            available_output = self._read_available()
+            self._debug_print(f"Available output after enable: {repr(available_output)}", "RECV")
             
-            # Verify we're in enable mode
-            output = self._send_command("", expect_prompt=True)
-            if "#" in output:
-                self.privileged = True
-                return True
-            else:
-                raise ConnectionError("Failed to enter privileged mode - check enable password")
+            # Check if device is asking for password
+            if "Password:" in available_output or "password:" in available_output:
+                self._debug_print("Device is asking for enable password", "RECV")
+                if self.enable_password:
+                    self._debug_print("Sending enable password", "SEND")
+                    self.shell.send(f"{self.enable_password}\n")
+                    time.sleep(1)
+                    password_response = self._read_available()
+                    self._debug_print(f"Password response: {repr(password_response)}", "RECV")
+                    available_output += password_response
+                else:
+                    raise ConnectionError("Device requires enable password but none provided")
+            
+            # Test if we're now in privileged mode by trying a privileged command
+            try:
+                # Try a simple privileged command that should work
+                self._debug_print("Testing privilege with 'show privilege'", "SEND")
+                test_result = self._send_command("show privilege")
+                self._debug_print(f"Show privilege result: {repr(test_result)}", "RECV")
+                
+                # If the command worked and shows privilege level 15, we're good
+                if "privilege level 15" in test_result.lower() or "current privilege level is 15" in test_result.lower():
+                    self._debug_print("Successfully entered privileged mode (level 15)", "SUCCESS")
+                    self.privileged = True
+                    return True
+                
+                # Alternative check: try to see current prompt
+                self._debug_print("Testing current prompt", "SEND")
+                prompt_test = self._send_command("")  # Empty command to get prompt
+                self._debug_print(f"Prompt test result: {repr(prompt_test)}", "RECV")
+                if prompt_test.strip().endswith('#'):
+                    self._debug_print("Successfully entered privileged mode (# prompt)", "SUCCESS")
+                    self.privileged = True
+                    return True
+                    
+                # If we get here, enable mode probably failed
+                self._debug_print("Enable mode verification failed", "ERROR")
+                return False
+                    
+            except Exception as test_e:
+                # If show privilege fails, we might not be in enable mode
+                return False
                 
         except Exception as e:
             raise ConnectionError(f"Failed to enter enable mode: {str(e)}")
@@ -183,13 +243,18 @@ class CiscoSSHConnector:
     def _send_command(self, command: str, expect_prompt: bool = True) -> str:
         """Internal method to send command and get output."""
         if command:
+            self._debug_print(f"Sending command: '{command}'", "SEND")
             self.shell.send(f"{command}\n")
         
         if expect_prompt:
-            return self._read_until_prompt()
+            output = self._read_until_prompt()
+            self._debug_print(f"Command output: {repr(output)}", "RECV")
+            return output
         else:
             time.sleep(1)
-            return self._read_available()
+            output = self._read_available()
+            self._debug_print(f"Available output: {repr(output)}", "RECV")
+            return output
     
     def _read_until_prompt(self, timeout: Optional[int] = None) -> str:
         """Read output until device prompt is found."""
@@ -207,10 +272,13 @@ class CiscoSSHConnector:
             r'\[confirm\]',  # Confirmation prompt
         ]
         
+        self._debug_print(f"Looking for prompt, timeout={timeout}s", "DEBUG")
+        
         while time.time() - start_time < timeout:
             if self.shell.recv_ready():
                 chunk = self.shell.recv(4096).decode('utf-8', errors='ignore')
                 output += chunk
+                self._debug_print(f"Received chunk: {repr(chunk)}", "RAW")
                 
                 # Handle more prompts
                 if "--More--" in chunk:
@@ -221,12 +289,15 @@ class CiscoSSHConnector:
                 lines = output.split('\n')
                 if lines:
                     last_line = lines[-1].strip()
-                    for pattern in prompt_patterns:
+                    self._debug_print(f"Checking last line: {repr(last_line)}", "DEBUG")
+                    for i, pattern in enumerate(prompt_patterns):
                         if re.search(pattern, last_line):
+                            self._debug_print(f"Matched pattern {i}: {pattern}", "SUCCESS")
                             return self._clean_output(output)
             
             time.sleep(0.1)
         
+        self._debug_print(f"Timeout! Full output: {repr(output)}", "ERROR")
         raise TimeoutError(f"Timeout waiting for prompt. Last output: {output[-200:]}")
     
     def _read_available(self) -> str:
@@ -314,6 +385,7 @@ class ConnectionManager:
     def __init__(self):
         self.connections: Dict[str, CiscoSSHConnector] = {}
         self.credentials: Optional[Tuple[str, str, Optional[str]]] = None
+        self.debug_mode = False
     
     def set_credentials(self, username: str, password: str, enable_password: Optional[str] = None) -> None:
         """Set default credentials for connections."""
@@ -332,14 +404,26 @@ class ConnectionManager:
                     device=device,
                     username=username,
                     password=password,
-                    enable_password=enable_password
+                    enable_password=enable_password,
+                    debug_mode=self.debug_mode
                 )
                 
                 connector.connect()
                 
-                # Try to enter enable mode if enable password provided
-                if enable_password:
-                    connector.enter_enable_mode()
+                # Try to enter enable mode only if not already in privileged mode
+                if not connector.privileged:
+                    try:
+                        success = connector.enter_enable_mode()
+                        if success:
+                            print(f"Successfully entered privileged mode on {device.name}")
+                        else:
+                            print(f"Warning: Could not enter privileged mode on {device.name}")
+                    except Exception as e:
+                        # If enable mode fails, log it but continue
+                        print(f"Warning: Enable mode failed on {device.name}: {str(e)}")
+                        connector.privileged = False
+                else:
+                    print(f"Device {device.name} already in privileged mode")
                 
                 self.connections[device.name] = connector
                 return connector

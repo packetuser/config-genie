@@ -1,6 +1,7 @@
 """Interactive CLI session for Config-Genie."""
 
 import cmd
+import getpass
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -22,7 +23,30 @@ from .inventory import Inventory, Device
 from .connector import ConnectionManager
 
 
-console = Console()
+# Create console with minimal padding and consistent formatting
+console = Console(
+    width=None,  # Use terminal width
+    legacy_windows=False,
+    force_terminal=True,
+    _environ=None
+)
+
+# Simple color helper functions
+def white(text: str) -> str:
+    """White text for primary messages."""
+    return f"\033[37m{text}\033[0m"
+
+def grey(text: str) -> str:
+    """Grey text for secondary messages."""
+    return f"\033[90m{text}\033[0m"
+
+def cyan(text: str) -> str:
+    """Cyan text for status and info messages."""
+    return f"\033[36m{text}\033[0m"
+
+def red(text: str) -> str:
+    """Red text for errors only."""
+    return f"\033[31m{text}\033[0m"
 
 
 class InteractiveSession(cmd.Cmd):
@@ -36,6 +60,7 @@ class InteractiveSession(cmd.Cmd):
         self.inventory_path = inventory_path
         self.dry_run = dry_run
         self.verbose = verbose
+        self.debug_mode = False  # New debug mode flag
         
         self.inventory = Inventory()
         self.connection_manager = ConnectionManager()
@@ -70,6 +95,7 @@ class InteractiveSession(cmd.Cmd):
         console.print("[dim]Press '?' after typing a command for instant context help.[/dim]\n")
         
         try:
+            # Re-enable custom cmdloop for instant help, with better state management
             self.cmdloop_with_instant_help()
         except KeyboardInterrupt:
             console.print("\n[yellow]Use 'quit' to exit.[/yellow]")
@@ -96,16 +122,17 @@ class InteractiveSession(cmd.Cmd):
         """Show help for commands."""
         if not arg:
             console.print(Panel.fit(
-                "[bold]Available Commands:[/bold]\n\n"
-                "[cyan]inventory[/cyan] - Load and manage device inventory\n"
-                "[cyan]devices[/cyan] - List and filter devices\n"
-                "[cyan]select[/cyan] - Select devices for operations\n"
-                "[cyan]connect[/cyan] - Connect to selected devices\n"
-                "[cyan]execute[/cyan] - Execute commands on connected devices\n"
-                "[cyan]templates[/cyan] - Manage configuration templates\n"
-                "[cyan]history[/cyan] - Show session history\n"
-                "[cyan]status[/cyan] - Show current session status\n"
-                "[cyan]quit[/cyan] - Exit the session",
+                "[bold white]Available Commands:[/bold white]\n\n"
+                "[white]inventory[/white] - Load and manage device inventory\n"
+                "[white]devices[/white] - List and filter devices\n"
+                "[white]select[/white] - Select devices for operations\n"
+                "[white]connect[/white] - Connect to selected devices\n"
+                "[white]execute[/white] - Execute commands on connected devices\n"
+                "[white]templates[/white] - Manage configuration templates\n"
+                "[white]history[/white] - Show session history\n"
+                "[white]status[/white] - Show current session status\n"
+                "[white]debug[/white] - Toggle debug mode for SSH communication\n"
+                "[white]quit[/white] - Exit the session",
                 title="Help"
             ))
         else:
@@ -116,6 +143,14 @@ class InteractiveSession(cmd.Cmd):
             else:
                 console.print(f"[red]No help available for '{arg}'[/red]")
     
+    def default(self, line: str) -> None:
+        """Handle unknown commands, including '?' for help."""
+        if line.strip() == '?':
+            self.do_help('')
+        else:
+            console.print(f"[red]Unknown command: {line}[/red]")
+            console.print("Type 'help' or '?' for available commands.")
+    
     def do_inventory(self, arg: str) -> None:
         """Load inventory file. Usage: inventory [path]"""
         if not arg:
@@ -123,7 +158,7 @@ class InteractiveSession(cmd.Cmd):
                 console.print(f"[green]Current inventory:[/green] {self.inventory_path}")
             else:
                 console.print("[yellow]No inventory loaded.[/yellow]")
-                path = Prompt.ask("Enter inventory file path")
+                path = input("Enter inventory file path: ").strip()
                 if path:
                     self._load_inventory(path)
         else:
@@ -185,18 +220,18 @@ class InteractiveSession(cmd.Cmd):
         if not arg:
             # Show current selection
             if self.selected_devices:
-                console.print(f"[green]Selected devices:[/green] {', '.join(d.name for d in self.selected_devices)}")
+                print(cyan(f"Selected devices: {', '.join(str(d.name) for d in self.selected_devices)}"))
             else:
-                console.print("[yellow]No devices selected.[/yellow]")
+                print(grey("No devices selected."))
             return
         
         if arg == "all":
             self.selected_devices = self.inventory.get_all_devices()
-            console.print(f"[green]Selected all {len(self.selected_devices)} devices[/green]")
+            print(cyan(f"Selected all {len(self.selected_devices)} devices"))
         
         elif arg == "none":
             self.selected_devices = []
-            console.print("[green]Cleared device selection[/green]")
+            print(cyan("Cleared device selection"))
         
         elif ',' in arg:
             # Select specific devices by name
@@ -208,9 +243,9 @@ class InteractiveSession(cmd.Cmd):
                 if device:
                     self.selected_devices.append(device)
                 else:
-                    console.print(f"[red]Device not found: {name}[/red]")
+                    print(grey(f"Device not found: {name}"))
             
-            console.print(f"[green]Selected {len(self.selected_devices)} devices[/green]")
+            print(cyan(f"Selected {len(self.selected_devices)} devices"))
         
         else:
             # Try to parse as filter
@@ -226,55 +261,57 @@ class InteractiveSession(cmd.Cmd):
                 elif key == 'role':
                     self.selected_devices = self.inventory.filter_devices(role=value)
                 else:
-                    console.print(f"[red]Unknown filter: {arg}[/red]")
+                    print(red(f"Unknown filter: {arg}"))
                     return
                 
-                console.print(f"[green]Selected {len(self.selected_devices)} devices matching {arg}[/green]")
+                print(cyan(f"Selected {len(self.selected_devices)} devices matching {arg}"))
             else:
-                console.print(f"[red]Invalid selection: {arg}[/red]")
+                print(red(f"Invalid selection: {arg}"))
     
     def do_connect(self, arg: str) -> None:
         """Connect to selected devices. Usage: connect"""
         if not self.selected_devices:
-            console.print("[yellow]No devices selected. Use 'select' command first.[/yellow]")
+            print(grey("No devices selected. Use 'select' command first."))
             return
         
         # Get credentials
         if not self.connection_manager.credentials:
-            console.print("[blue]Enter device credentials:[/blue]")
-            username = Prompt.ask("Username")
-            password = Prompt.ask("Password", password=True)
-            enable_password = Prompt.ask("Enable password (optional)", password=True, default="")
+            print(cyan("Enter device credentials:"))
+            username = input("Username: ").strip()
+            password = getpass.getpass("Password: ")
+            # Note: Enable password disabled for current environment - uncomment if needed
+            # enable_password = Prompt.ask("Enable password (optional)", password=True, default="")
             
             self.connection_manager.set_credentials(
                 username, 
                 password, 
-                enable_password if enable_password else None
+                None  # No enable password for current environment
+                # enable_password if enable_password else None  # Uncomment if enable password needed
             )
         
         # Connect to devices
-        console.print(f"[yellow]Connecting to {len(self.selected_devices)} devices...[/yellow]")
+        print(cyan(f"Connecting to {len(self.selected_devices)} devices..."))
         
         connected = 0
         for device in self.selected_devices:
             try:
-                console.print(f"Connecting to {device.name}...", end=" ")
+                print(cyan(f"Connecting to {device.name}..."), end=" ")
                 self.connection_manager.connect_device(device)
-                console.print("[green]✓[/green]")
+                print(white("✓"))
                 connected += 1
             except Exception as e:
-                console.print(f"[red]✗ {str(e)}[/red]")
+                print(red(f"✗ {str(e)}"))
         
-        console.print(f"\n[green]Connected to {connected}/{len(self.selected_devices)} devices[/green]")
+        print(white(f"Connected to {connected}/{len(self.selected_devices)} devices"))
     
     def do_execute(self, arg: str) -> None:
         """Execute command on connected devices. Usage: execute <command>"""
         if not arg:
-            console.print("[red]Please provide a command to execute[/red]")
+            print(red("Please provide a command to execute"))
             return
         
         if not self.selected_devices:
-            console.print("[yellow]No devices selected.[/yellow]")
+            print(grey("No devices selected."))
             return
         
         # Check connections
@@ -286,19 +323,21 @@ class InteractiveSession(cmd.Cmd):
         
         # Check if we have connected devices
         if not connected_devices:
-            console.print("[red]No connected devices. Use 'connect' command first.[/red]")
+            print(grey("No connected devices. Use 'connect' command first."))
             return
         
         # Confirm execution unless it's a show command
         is_show_command = arg.strip().lower().startswith(('show', 'display'))
         
         if not is_show_command and not self.dry_run:
-            if not Confirm.ask(f"Execute '{arg}' on {len(connected_devices)} devices?"):
-                console.print("[yellow]Command execution cancelled.[/yellow]")
+            # Use plain input to avoid Rich console padding issues
+            response = input(f"Execute '{arg}' on {len(connected_devices)} devices? [y/n]: ").lower().strip()
+            if response not in ['y', 'yes']:
+                print(grey("Command execution cancelled."))
                 return
         
         # Execute command
-        console.print(f"[yellow]Executing:[/yellow] {arg}")
+        print(cyan(f"Executing: {arg}"))
         if self.dry_run:
             console.print("[blue]DRY RUN MODE - Command would be executed on:[/blue]")
             for device in connected_devices:
@@ -332,6 +371,9 @@ class InteractiveSession(cmd.Cmd):
                 
                 if result.execution_time:
                     console.print(f"[dim]Execution time: {result.execution_time:.2f}s[/dim]")
+            
+            # Ensure clean terminal state after execution
+            sys.stdout.flush()
         
         # Record in history
         self.session_history.append({
@@ -424,72 +466,75 @@ class InteractiveSession(cmd.Cmd):
             ))
         
         elif command == "select":
-            console.print(Panel.fit(
-                "[bold]select[/bold] - Select devices for operations\n\n"
+            console.print(Panel(
+                "[bold white]select[/bold white] - [white]Select devices for operations[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "select                    # Show current selection\n"
-                "select all               # Select all devices\n"
-                "select none              # Clear selection\n"
-                "select device1,device2   # Select specific devices\n"
-                "select model=2960X       # Select by model\n"
-                "select site=HQ          # Select by site\n"
-                "select role=switch      # Select by role\n\n"
-                "[yellow]Available filters:[/yellow]\n"
-                "• model=<model_name>\n"
+                "[white]select                     # Show current selection\n"
+                "select all                 # Select all devices\n"
+                "select none                # Clear selection\n"
+                "select device1,device2     # Select specific devices\n"
+                "select model=2960X         # Select by model\n"
+                "select site=100McCaul      # Select by site\n"
+                "select role=switch         # Select by role[/white]\n\n"
+                "[cyan]Available filters:[/cyan]\n"
+                "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
-                "• name=<pattern>",
-                title="Context Help"
+                "• name=<pattern>[/white]",
+                title="Context Help",
+                width=60
             ))
         
         elif command == "execute":
             console.print(Panel.fit(
-                "[bold]execute[/bold] - Execute command on connected devices\n\n"
-                "[cyan]Usage:[/cyan] execute <command>\n\n"
-                "[yellow]Prerequisites:[/yellow]\n"
-                "• Devices must be selected and connected\n"
-                "• Non-show commands require confirmation\n\n"
-                "[yellow]Common commands:[/yellow]\n"
-                "show version\n"
+                "[bold white]execute[/bold white] - [white]Execute command on connected devices[/white]\n\n"
+                "[cyan]Usage:[/cyan] [white]execute <command>[/white]\n\n"
+                "[cyan]Prerequisites:[/cyan]\n"
+                "[white]• Devices must be selected and connected\n"
+                "• Non-show commands require confirmation[/white]\n\n"
+                "[cyan]Common commands:[/cyan]\n"
+                "[white]show version\n"
                 "show running-config\n"
                 "show ip interface brief\n"
                 "show vlan brief\n"
-                "show interface status\n\n"
+                "show interface status[/white]\n\n"
                 "[dim]Note: Show commands execute immediately, config changes require confirmation[/dim]",
                 title="Context Help"
             ))
         
         elif command == "devices":
-            console.print(Panel.fit(
-                "[bold]devices[/bold] - List and filter devices\n\n"
+            console.print(Panel(
+                "[bold white]devices[/bold white] - [white]List and filter devices[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "devices                  # List all devices\n"
-                "devices model=2960X      # Filter by model\n"
-                "devices site=HQ         # Filter by site\n"
-                "devices role=switch     # Filter by role\n"
-                "devices name=sw-        # Filter by name pattern\n\n"
-                "[yellow]Available filters:[/yellow]\n"
-                "• model=<model_name>\n"
+                "[white]devices                    # List all devices\n"
+                "devices model=2960X        # Filter by model\n"
+                "devices site=100McCaul     # Filter by site\n"
+                "devices role=switch        # Filter by role\n"
+                "devices name=sw-           # Filter by name pattern[/white]\n\n"
+                "[cyan]Available filters:[/cyan]\n"
+                "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
-                "• name=<pattern>",
-                title="Context Help"
+                "• name=<pattern>[/white]",
+                title="Context Help",
+                width=60
             ))
         
         elif command == "inventory":
-            console.print(Panel.fit(
-                "[bold]inventory[/bold] - Load and manage device inventory\n\n"
+            console.print(Panel(
+                "[bold white]inventory[/bold white] - [white]Load and manage device inventory[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "inventory                # Show current inventory status\n"
-                "inventory <path>         # Load inventory from file\n\n"
-                "[yellow]Supported formats:[/yellow]\n"
-                "• YAML files (.yml, .yaml)\n"
-                "• Text files (.txt)\n\n"
-                "[yellow]Auto-load locations:[/yellow]\n"
-                "• ./devices.yaml\n"
+                "[white]inventory                  # Show current inventory status\n"
+                "inventory <path>           # Load inventory from file[/white]\n\n"
+                "[cyan]Supported formats:[/cyan]\n"
+                "[white]• YAML files (.yml, .yaml)\n"
+                "• Text files (.txt)[/white]\n\n"
+                "[cyan]Auto-load locations:[/cyan]\n"
+                "[white]• ./devices.yaml\n"
                 "• ./config-genie/devices.yaml\n"
-                "• ~/config-genie/devices.yaml",
-                title="Context Help"
+                "• ~/config-genie/devices.yaml[/white]",
+                title="Context Help",
+                width=60
             ))
         
         elif command == "templates":
@@ -550,8 +595,8 @@ class InteractiveSession(cmd.Cmd):
                 except EOFError:
                     line = 'EOF'
                 except KeyboardInterrupt:
-                    line = ''
-                    console.print("^C")
+                    print("^C")
+                    continue  # Skip command execution and go back to prompt
             
             stop = self.onecmd(line)
             stop = self.onecmd_finish(line, stop)
@@ -664,7 +709,8 @@ class InteractiveSession(cmd.Cmd):
                 elif char == '?':
                     # Show instant help
                     command_line = ''.join(input_buffer).strip()
-                    sys.stdout.write('\n')
+                    # Move to start of line and clear it
+                    sys.stdout.write('\r\033[K')
                     sys.stdout.flush()
                     
                     # Temporarily restore terminal settings for Rich output
@@ -683,7 +729,8 @@ class InteractiveSession(cmd.Cmd):
                         # Return to raw mode
                         tty.setraw(sys.stdin.fileno())
                     
-                    # Redraw prompt and current input
+                    # Ensure clean line before redrawing prompt
+                    sys.stdout.write('\r\033[K')
                     sys.stdout.write(self.prompt + ''.join(input_buffer))
                     sys.stdout.flush()
                 
@@ -832,6 +879,28 @@ class InteractiveSession(cmd.Cmd):
         
         return [cmd for cmd in cisco_commands if cmd.startswith(text)]
     
+    def do_debug(self, arg: str) -> None:
+        """Toggle debug mode. Usage: debug [on|off]"""
+        if not arg:
+            # Show current status
+            status = "ON" if self.debug_mode else "OFF"
+            print(cyan(f"Debug mode is currently {status}"))
+            return
+        
+        arg = arg.lower().strip()
+        if arg in ['on', 'true', '1', 'yes']:
+            self.debug_mode = True
+            # Enable debug on connection manager too
+            self.connection_manager.debug_mode = True
+            print(cyan("Debug mode enabled - SSH communication will be shown"))
+        elif arg in ['off', 'false', '0', 'no']:
+            self.debug_mode = False
+            # Disable debug on connection manager too
+            self.connection_manager.debug_mode = False
+            print(grey("Debug mode disabled"))
+        else:
+            print(red("Usage: debug [on|off]"))
+
     def do_quit(self, line: str) -> bool:
         """Exit the session."""
         return True
