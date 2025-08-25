@@ -5,6 +5,14 @@ import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+try:
+    import termios
+    import tty
+    HAS_TERMIOS = True
+except ImportError:
+    # Windows doesn't have termios
+    HAS_TERMIOS = False
+
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
@@ -22,7 +30,7 @@ class InteractiveSession(cmd.Cmd):
     
     def __init__(self, inventory_path: Optional[str] = None, dry_run: bool = False, verbose: bool = False):
         super().__init__()
-        self.prompt = "[cyan](config-genie)[/cyan] "
+        self.prompt = "(config-genie) "
         self.intro = None  # We'll handle welcome message separately
         
         self.inventory_path = inventory_path
@@ -58,23 +66,31 @@ class InteractiveSession(cmd.Cmd):
     def run(self) -> None:
         """Start the interactive session."""
         console.print("\n[bold blue]Interactive Mode[/bold blue]")
-        console.print("Type 'help' for available commands or 'quit' to exit.\n")
+        console.print("Type 'help' for available commands or 'quit' to exit.")
+        console.print("[dim]Press '?' after typing a command for instant context help.[/dim]\n")
         
-        # Override cmd's cmdloop to use rich for prompting
-        while True:
-            try:
-                line = Prompt.ask(self.prompt, console=console)
-                if line.lower() in ['quit', 'exit', 'q']:
-                    break
-                elif line.strip():
-                    self.onecmd(line)
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Use 'quit' to exit.[/yellow]")
-            except EOFError:
-                break
+        try:
+            self.cmdloop_with_instant_help()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Use 'quit' to exit.[/yellow]")
         
         console.print("\n[green]Goodbye![/green]")
         self._cleanup()
+    
+    def parseline(self, line: str) -> tuple:
+        """Override parseline to handle '?' syntax for context help."""
+        line = line.strip()
+        if line.endswith(' ?'):
+            # Remove the '?' and show context help
+            command_line = line[:-2].strip()
+            parts = command_line.split()
+            if parts:
+                command = parts[0]
+                args = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                self._show_context_help(command, args)
+                # Return None values to indicate the line was handled
+                return None, None, None
+        return super().parseline(line)
     
     def do_help(self, arg: str) -> None:
         """Show help for commands."""
@@ -392,6 +408,443 @@ class InteractiveSession(cmd.Cmd):
             console.print(f"[red]Error loading inventory: {str(e)}[/red]")
     
 
+    def _show_context_help(self, command: str, args: str) -> None:
+        """Show context-sensitive help for commands."""
+        if command == "connect":
+            console.print(Panel.fit(
+                "[bold]connect[/bold] - Connect to selected devices\n\n"
+                "[cyan]Usage:[/cyan] connect\n\n"
+                "[yellow]Prerequisites:[/yellow]\n"
+                "• Devices must be selected first (use 'select' command)\n"
+                "• Will prompt for credentials if not already provided\n\n"
+                "[yellow]Examples:[/yellow]\n"
+                "connect\n\n"
+                "[dim]Note: This command connects to all currently selected devices[/dim]",
+                title="Context Help"
+            ))
+        
+        elif command == "select":
+            console.print(Panel.fit(
+                "[bold]select[/bold] - Select devices for operations\n\n"
+                "[cyan]Usage:[/cyan]\n"
+                "select                    # Show current selection\n"
+                "select all               # Select all devices\n"
+                "select none              # Clear selection\n"
+                "select device1,device2   # Select specific devices\n"
+                "select model=2960X       # Select by model\n"
+                "select site=HQ          # Select by site\n"
+                "select role=switch      # Select by role\n\n"
+                "[yellow]Available filters:[/yellow]\n"
+                "• model=<model_name>\n"
+                "• site=<site_name>\n"
+                "• role=<role_name>\n"
+                "• name=<pattern>",
+                title="Context Help"
+            ))
+        
+        elif command == "execute":
+            console.print(Panel.fit(
+                "[bold]execute[/bold] - Execute command on connected devices\n\n"
+                "[cyan]Usage:[/cyan] execute <command>\n\n"
+                "[yellow]Prerequisites:[/yellow]\n"
+                "• Devices must be selected and connected\n"
+                "• Non-show commands require confirmation\n\n"
+                "[yellow]Common commands:[/yellow]\n"
+                "show version\n"
+                "show running-config\n"
+                "show ip interface brief\n"
+                "show vlan brief\n"
+                "show interface status\n\n"
+                "[dim]Note: Show commands execute immediately, config changes require confirmation[/dim]",
+                title="Context Help"
+            ))
+        
+        elif command == "devices":
+            console.print(Panel.fit(
+                "[bold]devices[/bold] - List and filter devices\n\n"
+                "[cyan]Usage:[/cyan]\n"
+                "devices                  # List all devices\n"
+                "devices model=2960X      # Filter by model\n"
+                "devices site=HQ         # Filter by site\n"
+                "devices role=switch     # Filter by role\n"
+                "devices name=sw-        # Filter by name pattern\n\n"
+                "[yellow]Available filters:[/yellow]\n"
+                "• model=<model_name>\n"
+                "• site=<site_name>\n"
+                "• role=<role_name>\n"
+                "• name=<pattern>",
+                title="Context Help"
+            ))
+        
+        elif command == "inventory":
+            console.print(Panel.fit(
+                "[bold]inventory[/bold] - Load and manage device inventory\n\n"
+                "[cyan]Usage:[/cyan]\n"
+                "inventory                # Show current inventory status\n"
+                "inventory <path>         # Load inventory from file\n\n"
+                "[yellow]Supported formats:[/yellow]\n"
+                "• YAML files (.yml, .yaml)\n"
+                "• Text files (.txt)\n\n"
+                "[yellow]Auto-load locations:[/yellow]\n"
+                "• ./devices.yaml\n"
+                "• ./config-genie/devices.yaml\n"
+                "• ~/config-genie/devices.yaml",
+                title="Context Help"
+            ))
+        
+        elif command == "templates":
+            console.print(Panel.fit(
+                "[bold]templates[/bold] - Manage configuration templates\n\n"
+                "[cyan]Usage:[/cyan]\n"
+                "templates list           # List available templates\n"
+                "templates create         # Create new template\n"
+                "templates edit <name>    # Edit existing template\n"
+                "templates delete <name>  # Delete template\n\n"
+                "[yellow]Status:[/yellow] Template management system coming soon",
+                title="Context Help"
+            ))
+        
+        elif command == "history":
+            console.print(Panel.fit(
+                "[bold]history[/bold] - Show session command history\n\n"
+                "[cyan]Usage:[/cyan] history\n\n"
+                "Shows all commands executed in current session with:\n"
+                "• Command text\n"
+                "• Target devices\n"
+                "• Execution mode (DRY RUN or EXECUTE)",
+                title="Context Help"
+            ))
+        
+        elif command == "status":
+            console.print(Panel.fit(
+                "[bold]status[/bold] - Show current session status\n\n"
+                "[cyan]Usage:[/cyan] status\n\n"
+                "Displays current session information:\n"
+                "• Inventory status\n"
+                "• Device counts (loaded/selected/connected)\n"
+                "• Execution mode\n"
+                "• Commands executed count",
+                title="Context Help"
+            ))
+        
+        else:
+            console.print(f"[yellow]No context help available for '{command}'[/yellow]")
+            console.print("Use 'help' to see all available commands")
+
     def _cleanup(self) -> None:
         """Clean up session resources."""
         self.connection_manager.disconnect_all()
+    
+    def cmdloop_with_instant_help(self) -> None:
+        """Custom command loop that shows help instantly when '?' is pressed."""
+        if self.intro:
+            self.stdout.write(str(self.intro) + "\n")
+        
+        stop = None
+        while not stop:
+            if self.cmdqueue:
+                line = self.cmdqueue.pop(0)
+            else:
+                try:
+                    line = self._input_with_instant_help()
+                except EOFError:
+                    line = 'EOF'
+                except KeyboardInterrupt:
+                    line = ''
+                    console.print("^C")
+            
+            stop = self.onecmd(line)
+            stop = self.onecmd_finish(line, stop)
+    
+    def onecmd_finish(self, line: str, stop: bool) -> bool:
+        """Hook called after each command. Override for custom behavior."""
+        return stop
+    
+    def _input_with_instant_help(self) -> str:
+        """Custom input handler that shows help when '?' is pressed."""
+        if not sys.stdin.isatty() or not HAS_TERMIOS:
+            # Fall back to regular input if not in a terminal or on Windows
+            return input(self.prompt)
+        
+        # Save terminal settings
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        
+        try:
+            # Set terminal to raw mode for character-by-character input
+            tty.setraw(sys.stdin.fileno())
+            
+            # Use raw stdout for better terminal control
+            sys.stdout.write(self.prompt)
+            sys.stdout.flush()
+            
+            input_buffer = []
+            cursor_pos = 0
+            
+            while True:
+                char = sys.stdin.read(1)
+                
+                # Handle special characters
+                if char == '\r' or char == '\n':  # Enter
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
+                    return ''.join(input_buffer)
+                
+                elif char == '\x7f' or char == '\x08':  # Backspace/Delete
+                    if cursor_pos > 0 and input_buffer:
+                        input_buffer.pop(cursor_pos - 1)
+                        cursor_pos -= 1
+                        # Clear line and redraw
+                        sys.stdout.write('\r\033[K')  # Move to start and clear line
+                        sys.stdout.write(self.prompt + ''.join(input_buffer))
+                        sys.stdout.flush()
+                
+                elif char == '\x03':  # Ctrl+C
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
+                    raise KeyboardInterrupt
+                
+                elif char == '\x04':  # Ctrl+D (EOF)
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
+                    raise EOFError
+                
+                elif char == '\t':  # Tab for autocomplete
+                    # Handle autocomplete
+                    current_line = ''.join(input_buffer)
+                    completions = self._get_completions(current_line)
+                    
+                    if completions:
+                        if len(completions) == 1:
+                            # Single completion - complete it
+                            completion = completions[0]
+                            # Find the word being completed
+                            parts = current_line.split()
+                            if parts:
+                                last_word = parts[-1] if current_line.endswith(' ') else parts[-1] if parts else ''
+                                if not current_line.endswith(' '):
+                                    # Replace the last partial word
+                                    prefix = ' '.join(parts[:-1])
+                                    if prefix:
+                                        new_line = prefix + ' ' + completion
+                                    else:
+                                        new_line = completion
+                                else:
+                                    new_line = current_line + completion
+                            else:
+                                new_line = completion
+                            
+                            # Update buffer
+                            input_buffer = list(new_line)
+                            cursor_pos = len(input_buffer)
+                            
+                            # Redraw line
+                            sys.stdout.write('\r\033[K')
+                            sys.stdout.write(self.prompt + new_line)
+                            sys.stdout.flush()
+                        else:
+                            # Multiple completions - show them
+                            sys.stdout.write('\n')
+                            # Show completions in columns
+                            import shutil
+                            term_width = shutil.get_terminal_size().columns
+                            max_width = max(len(comp) for comp in completions)
+                            cols = max(1, term_width // (max_width + 2))
+                            
+                            for i, comp in enumerate(completions):
+                                if i > 0 and i % cols == 0:
+                                    sys.stdout.write('\n')
+                                sys.stdout.write(comp.ljust(max_width + 2))
+                            sys.stdout.write('\n')
+                            
+                            # Redraw prompt and current input
+                            sys.stdout.write(self.prompt + ''.join(input_buffer))
+                            sys.stdout.flush()
+                
+                elif char == '?':
+                    # Show instant help
+                    command_line = ''.join(input_buffer).strip()
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
+                    
+                    # Temporarily restore terminal settings for Rich output
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    
+                    try:
+                        if command_line:
+                            parts = command_line.split()
+                            command = parts[0]
+                            args = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                            self._show_context_help(command, args)
+                        else:
+                            # No command typed, show general help
+                            self.do_help('')
+                    finally:
+                        # Return to raw mode
+                        tty.setraw(sys.stdin.fileno())
+                    
+                    # Redraw prompt and current input
+                    sys.stdout.write(self.prompt + ''.join(input_buffer))
+                    sys.stdout.flush()
+                
+                elif char.isprintable():
+                    # Add printable character to buffer
+                    input_buffer.insert(cursor_pos, char)
+                    cursor_pos += 1
+                    sys.stdout.write(char)
+                    sys.stdout.flush()
+                
+                # Handle escape sequences for arrow keys (optional enhancement)
+                elif char == '\x1b':  # ESC sequence
+                    next_char = sys.stdin.read(1)
+                    if next_char == '[':
+                        arrow_char = sys.stdin.read(1)
+                        # Could handle arrow keys here for cursor movement
+                        pass
+        
+        finally:
+            # Restore terminal settings
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    
+    def _get_completions(self, line: str) -> List[str]:
+        """Get completions for the current line using cmd.Cmd's completion system."""
+        # Parse the line to determine command and arguments
+        parts = line.strip().split()
+        if not parts:
+            # No command typed, return available commands
+            return [name[3:] for name in dir(self) if name.startswith('do_') and len(name) > 3]
+        
+        command = parts[0]
+        if len(parts) == 1 and not line.endswith(' '):
+            # Still completing the command name
+            commands = [name[3:] for name in dir(self) if name.startswith('do_') and len(name) > 3]
+            return [cmd for cmd in commands if cmd.startswith(command)]
+        
+        # Completing arguments for the command
+        # Use the existing complete_* methods
+        complete_method = getattr(self, f'complete_{command}', None)
+        if complete_method:
+            # Get the text being completed (last word or empty string)
+            if line.endswith(' '):
+                text = ''
+                begidx = len(line)
+            else:
+                text = parts[-1]
+                begidx = len(line) - len(text)
+            
+            endidx = len(line)
+            return complete_method(text, line, begidx, endidx)
+        
+        return []
+    
+    # Autocomplete methods
+    def complete_devices(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for devices command filters."""
+        options = ['model=', 'site=', 'role=', 'name=']
+        return [option for option in options if option.startswith(text)]
+    
+    def complete_select(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for select command."""
+        # Base options
+        options = ['all', 'none']
+        
+        # Add device names (ensure they're strings)
+        device_names = [str(device.name) for device in self.inventory.get_all_devices()]
+        options.extend(device_names)
+        
+        # Add filter options
+        if '=' in text or any('=' in part for part in line.split()):
+            # Already in filter mode, suggest values
+            if text.startswith('model='):
+                models = set(device.model for device in self.inventory.get_all_devices() if device.model)
+                return [f"model={model}" for model in models if f"model={model}".startswith(text)]
+            elif text.startswith('site='):
+                sites = set(device.site for device in self.inventory.get_all_devices() if device.site)
+                return [f"site={site}" for site in sites if f"site={site}".startswith(text)]
+            elif text.startswith('role='):
+                roles = set(device.role for device in self.inventory.get_all_devices() if device.role)
+                return [f"role={role}" for role in roles if f"role={role}".startswith(text)]
+        else:
+            # Add filter prefixes
+            options.extend(['model=', 'site=', 'role='])
+        
+        return [option for option in options if option.startswith(text)]
+    
+    def complete_inventory(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for inventory command with file paths."""
+        import os
+        import glob
+        
+        # Get the directory and partial filename
+        if os.path.sep in text:
+            directory = os.path.dirname(text)
+            partial = os.path.basename(text)
+        else:
+            directory = '.'
+            partial = text
+        
+        try:
+            # Get matching files
+            pattern = os.path.join(directory, partial + '*')
+            matches = glob.glob(pattern)
+            
+            # Filter for relevant file extensions
+            relevant_files = []
+            for match in matches:
+                if os.path.isdir(match):
+                    relevant_files.append(match + os.path.sep)
+                elif match.endswith(('.yml', '.yaml', '.txt')):
+                    relevant_files.append(match)
+            
+            return relevant_files
+        except:
+            return []
+    
+    def complete_execute(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for execute command with common Cisco commands."""
+        cisco_commands = [
+            'show version',
+            'show running-config',
+            'show ip interface brief',
+            'show vlan brief',
+            'show interface status',
+            'show mac address-table',
+            'show cdp neighbors',
+            'show spanning-tree',
+            'show ip route',
+            'show interface',
+            'show logging',
+            'show clock',
+            'show users',
+            'enable',
+            'configure terminal',
+            'interface',
+            'vlan',
+            'ip route',
+            'no shutdown',
+            'shutdown',
+            'description',
+            'switchport mode access',
+            'switchport mode trunk',
+            'switchport access vlan',
+            'switchport trunk allowed vlan'
+        ]
+        
+        return [cmd for cmd in cisco_commands if cmd.startswith(text)]
+    
+    def do_quit(self, line: str) -> bool:
+        """Exit the session."""
+        return True
+    
+    def do_exit(self, line: str) -> bool:
+        """Exit the session."""
+        return True
+    
+    def do_q(self, line: str) -> bool:
+        """Exit the session."""
+        return True
+    
+    def do_EOF(self, line: str) -> bool:
+        """Handle Ctrl+D to exit."""
+        console.print()
+        return True
