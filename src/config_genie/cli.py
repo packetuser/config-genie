@@ -34,8 +34,8 @@ def main(ctx: click.Context, inventory: Optional[str], dry_run: bool, verbose: b
     
     # If no subcommand provided, start interactive mode
     if ctx.invoked_subcommand is None:
-        # ASCII art title
-        ascii_art = """[bold cyan]
+        # ASCII art title with version
+        ascii_art = f"""[bold cyan]
  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗ 
 ██╔════╝██╔═══██╗████╗  ██║██╔════╝██║██╔════╝ 
 ██║     ██║   ██║██╔██╗ ██║█████╗  ██║██║  ███╗
@@ -49,6 +49,8 @@ def main(ctx: click.Context, inventory: Optional[str], dry_run: bool, verbose: b
 ██║   ██║██╔══╝  ██║╚██╗██║██║██╔══╝           
 ╚██████╔╝███████╗██║ ╚████║██║███████╗         
  ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚══════╝         
+                                               
+                    [dim]v{__version__}[/dim]
 [/bold cyan]"""
         
         console.print(ascii_art)
