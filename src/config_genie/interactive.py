@@ -67,6 +67,10 @@ class InteractiveSession(cmd.Cmd):
         self.selected_devices: List[Device] = []
         self.session_history: List[Dict[str, Any]] = []
         
+        # Command history for up/down arrow functionality
+        self.command_history: List[str] = []
+        self.history_index: int = -1
+        
         # Load inventory if provided
         if inventory_path:
             self._load_inventory(inventory_path)
@@ -130,7 +134,7 @@ class InteractiveSession(cmd.Cmd):
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
-                "[white]history[/white] - Show session history\n"
+                "[white]history[/white] - Show command history (use up/down arrows)\n"
                 "[white]status[/white] - Show current session status\n"
                 "[white]debug[/white] - Toggle debug mode for SSH communication\n"
                 "[white]quit[/white] - Exit the session",
@@ -633,6 +637,22 @@ class InteractiveSession(cmd.Cmd):
             stop = self.onecmd(line)
             stop = self.onecmd_finish(line, stop)
     
+    def onecmd(self, line: str) -> bool:
+        """Override onecmd to add commands to history."""
+        # Add non-empty commands to history (but not duplicates of the last command)
+        line = line.strip()
+        if line and line != 'EOF' and line != '?' and (not self.command_history or line != self.command_history[-1]):
+            self.command_history.append(line)
+            # Limit history size to prevent memory issues
+            if len(self.command_history) > 1000:
+                self.command_history.pop(0)
+        
+        # Reset history index when a new command is executed
+        self.history_index = -1
+        
+        # Call parent implementation
+        return super().onecmd(line)
+    
     def onecmd_finish(self, line: str, stop: bool) -> bool:
         """Hook called after each command. Override for custom behavior."""
         return stop
@@ -665,6 +685,8 @@ class InteractiveSession(cmd.Cmd):
                 if char == '\r' or char == '\n':  # Enter
                     sys.stdout.write('\n')
                     sys.stdout.flush()
+                    # Reset history index for next input
+                    self.history_index = -1
                     return ''.join(input_buffer)
                 
                 elif char == '\x7f' or char == '\x08':  # Backspace/Delete
@@ -773,13 +795,64 @@ class InteractiveSession(cmd.Cmd):
                     sys.stdout.write(char)
                     sys.stdout.flush()
                 
-                # Handle escape sequences for arrow keys (optional enhancement)
+                # Handle escape sequences for arrow keys
                 elif char == '\x1b':  # ESC sequence
                     next_char = sys.stdin.read(1)
                     if next_char == '[':
                         arrow_char = sys.stdin.read(1)
-                        # Could handle arrow keys here for cursor movement
-                        pass
+                        
+                        if arrow_char == 'A':  # Up arrow
+                            if self.command_history and self.history_index < len(self.command_history) - 1:
+                                self.history_index += 1
+                                historical_command = self.command_history[-(self.history_index + 1)]
+                                
+                                # Clear current line and show historical command
+                                sys.stdout.write('\r\033[K')
+                                sys.stdout.write(self.prompt + historical_command)
+                                sys.stdout.flush()
+                                
+                                # Update buffer
+                                input_buffer = list(historical_command)
+                                cursor_pos = len(input_buffer)
+                        
+                        elif arrow_char == 'B':  # Down arrow
+                            if self.history_index > 0:
+                                self.history_index -= 1
+                                historical_command = self.command_history[-(self.history_index + 1)]
+                                
+                                # Clear current line and show historical command
+                                sys.stdout.write('\r\033[K')
+                                sys.stdout.write(self.prompt + historical_command)
+                                sys.stdout.flush()
+                                
+                                # Update buffer
+                                input_buffer = list(historical_command)
+                                cursor_pos = len(input_buffer)
+                            elif self.history_index == 0:
+                                # Go back to empty line
+                                self.history_index = -1
+                                
+                                # Clear current line
+                                sys.stdout.write('\r\033[K')
+                                sys.stdout.write(self.prompt)
+                                sys.stdout.flush()
+                                
+                                # Clear buffer
+                                input_buffer = []
+                                cursor_pos = 0
+                        
+                        # Left/Right arrows for cursor movement (future enhancement)
+                        elif arrow_char == 'C':  # Right arrow
+                            if cursor_pos < len(input_buffer):
+                                cursor_pos += 1
+                                sys.stdout.write('\033[C')  # Move cursor right
+                                sys.stdout.flush()
+                        
+                        elif arrow_char == 'D':  # Left arrow
+                            if cursor_pos > 0:
+                                cursor_pos -= 1
+                                sys.stdout.write('\033[D')  # Move cursor left
+                                sys.stdout.flush()
         
         finally:
             # Restore terminal settings
@@ -932,6 +1005,20 @@ class InteractiveSession(cmd.Cmd):
             print(grey("Debug mode disabled"))
         else:
             print(red("Usage: debug [on|off]"))
+    
+    def do_history(self, arg: str) -> None:
+        """Show command history. Use up/down arrows to navigate history."""
+        if not self.command_history:
+            print(grey("No command history yet."))
+            return
+        
+        print(cyan("Command History:"))
+        for i, command in enumerate(self.command_history[-10:], 1):  # Show last 10 commands
+            print(f"{i:2d}: {command}")
+        
+        if len(self.command_history) > 10:
+            print(grey(f"... and {len(self.command_history) - 10} more commands"))
+        print(grey("Use up/down arrow keys to navigate through history."))
 
     def do_quit(self, line: str) -> bool:
         """Exit the session."""
