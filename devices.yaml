@@ -4,3 +4,9 @@ devices:
       model: 2960X
       site: 100
       role: access
+    - name: 317-new
+      ip_address: 10.1.100.130
+      model: 9200
+      site: 100
+      role: access
+

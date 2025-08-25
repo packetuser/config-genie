@@ -87,6 +87,7 @@ class InteractiveSession(cmd.Cmd):
                 if os.path.exists(path):
                     try:
                         self.inventory.load_yaml(path)
+                        self.inventory_path = path  # Set the inventory path for consistent behavior
                         console.print(f"[green]✓ Auto-loaded {len(self.inventory.devices)} devices from {path}[/green]")
                         break
                     except Exception as e:
