@@ -34,11 +34,29 @@ def main(ctx: click.Context, inventory: Optional[str], dry_run: bool, verbose: b
     
     # If no subcommand provided, start interactive mode
     if ctx.invoked_subcommand is None:
+        # ASCII art title
+        ascii_art = """[bold cyan]
+ ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗ 
+██╔════╝██╔═══██╗████╗  ██║██╔════╝██║██╔════╝ 
+██║     ██║   ██║██╔██╗ ██║█████╗  ██║██║  ███╗
+██║     ██║   ██║██║╚██╗██║██╔══╝  ██║██║   ██║
+╚██████╗╚██████╔╝██║ ╚████║██║     ██║╚██████╔╝
+ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝ 
+                                               
+ ██████╗ ███████╗███╗   ██╗██╗███████╗         
+██╔════╝ ██╔════╝████╗  ██║██║██╔════╝         
+██║  ███╗█████╗  ██╔██╗ ██║██║█████╗           
+██║   ██║██╔══╝  ██║╚██╗██║██║██╔══╝           
+╚██████╔╝███████╗██║ ╚████║██║███████╗         
+ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚══════╝         
+[/bold cyan]"""
+        
+        console.print(ascii_art)
         console.print(Panel.fit(
-            "[bold green]Config-Genie[/bold green]\n"
-            "CLI-based network automation tool for Cisco devices\n"
-            f"Version {__version__}",
-            title="Welcome"
+            "[white]CLI-based network automation tool for Cisco devices[/white]\n"
+            f"[dim]Version {__version__}[/dim]",
+            title="[bold white]Welcome[/bold white]",
+            border_style="cyan"
         ))
         
         # Start interactive session

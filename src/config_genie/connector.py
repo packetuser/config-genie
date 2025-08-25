@@ -37,6 +37,7 @@ class CiscoSSHConnector:
         self.shell = None
         self.connected = False
         self.privileged = False
+        self.in_config_mode = False
     
     def _debug_print(self, message: str, prefix: str = "DEBUG") -> None:
         """Print debug message if debug mode is enabled."""
@@ -179,7 +180,7 @@ class CiscoSSHConnector:
         return self._send_command(command, expect_prompt)
     
     def send_config_commands(self, commands: List[str]) -> Dict[str, str]:
-        """Send configuration commands and return results."""
+        """Send configuration commands and return results. Stays in config mode."""
         if not self.connected:
             raise ConnectionError("Not connected to device")
         if not self.privileged:
@@ -187,24 +188,29 @@ class CiscoSSHConnector:
         
         results = {}
         
-        # Enter config mode
-        config_output = self._send_command("configure terminal")
-        if "config" not in config_output.lower():
-            raise ConnectionError("Failed to enter configuration mode")
+        # Enter config mode only if not already in it
+        if not self.in_config_mode:
+            self._debug_print("Entering configuration mode", "CONFIG")
+            config_output = self._send_command("configure terminal")
+            if "config" not in config_output.lower():
+                raise ConnectionError("Failed to enter configuration mode")
+            self.in_config_mode = True
         
-        try:
-            for command in commands:
-                if command.strip():
-                    output = self._send_command(command.strip())
-                    results[command] = output
-                    
-                    # Check for errors
-                    if self._has_config_error(output):
-                        raise ValueError(f"Configuration error for command '{command}': {output}")
-        
-        finally:
-            # Exit config mode
-            self._send_command("end")
+        # Execute commands in config mode
+        for command in commands:
+            if command.strip():
+                self._debug_print(f"Executing config command: {command.strip()}", "CONFIG")
+                output = self._send_command(command.strip())
+                results[command] = output
+                
+                # Check for errors
+                if self._has_config_error(output):
+                    raise ValueError(f"Configuration error for command '{command}': {output}")
+                
+                # Check if command exits config mode (like 'end', 'exit')
+                if command.strip().lower() in ['end', 'exit']:
+                    self.in_config_mode = False
+                    self._debug_print("Exited configuration mode", "CONFIG")
         
         return results
     

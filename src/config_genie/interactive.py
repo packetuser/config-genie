@@ -128,6 +128,7 @@ class InteractiveSession(cmd.Cmd):
                 "[white]select[/white] - Select devices for operations\n"
                 "[white]connect[/white] - Connect to selected devices\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
+                "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
                 "[white]history[/white] - Show session history\n"
                 "[white]status[/white] - Show current session status\n"
@@ -383,6 +384,37 @@ class InteractiveSession(cmd.Cmd):
             'timestamp': None  # Would use datetime in real implementation
         })
     
+    def do_exit_config(self, arg: str) -> None:
+        """Exit configuration mode on connected devices."""
+        if not self.selected_devices:
+            print(grey("No devices selected."))
+            return
+        
+        # Check connections
+        connected_devices = []
+        for device in self.selected_devices:
+            if device.name in self.connection_manager.connections:
+                connection = self.connection_manager.connections[device.name]
+                if connection.connected:
+                    connected_devices.append(device)
+        
+        if not connected_devices:
+            print(grey("No connected devices. Use 'connect' command first."))
+            return
+        
+        print(cyan("Exiting configuration mode on all connected devices..."))
+        
+        for device in connected_devices:
+            try:
+                connection = self.connection_manager.connections[device.name]
+                # Send 'end' to exit any config mode
+                connection.send_command("end")
+                # Reset config mode state
+                connection.in_config_mode = False
+                print(f"{device.name}: Exited configuration mode")
+            except Exception as e:
+                print(red(f"{device.name}: Failed to exit config mode - {str(e)}"))
+
     def do_templates(self, arg: str) -> None:
         """Manage configuration templates. Usage: templates [list|create|edit|delete]"""
         console.print("[yellow]Template management not implemented yet.[/yellow]")
