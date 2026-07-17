@@ -231,3 +231,17 @@ def test_inventory_netbox_connection_error(mocker):
     inventory = Inventory()
     with pytest.raises(ConnectionError, match="Failed to reach NetBox"):
         inventory.load_netbox(url="https://netbox.example.com", token="mytoken")
+
+
+def test_inventory_netbox_verify_ssl_false(mocker):
+    """Test that verify_ssl=False is applied to the pynetbox HTTP session."""
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = []
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+
+    inventory = Inventory()
+    inventory.load_netbox(
+        url="https://netbox.example.com", token="mytoken", verify_ssl=False
+    )
+
+    assert mock_api.http_session.verify is False

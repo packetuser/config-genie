@@ -172,13 +172,16 @@ class InteractiveSession(cmd.Cmd):
             self._load_inventory(arg)
     
     def do_netbox(self, arg: str) -> None:
-        """Load device inventory from a NetBox instance. Usage: netbox [site=<site>] [role=<role>] [status=<status>]"""
+        """Load device inventory from a NetBox instance. Usage: netbox [site=<site>] [role=<role>] [status=<status>] [insecure]"""
         import os
 
-        # Parse optional key=value filters from the command line
+        # Parse optional key=value filters and bare flags from the command line
         filters: Dict[str, str] = {}
+        insecure = False
         for token in arg.split():
-            if '=' in token:
+            if token.lower() in ('insecure', 'no-verify', 'no-verify-ssl'):
+                insecure = True
+            elif '=' in token:
                 key, value = token.split('=', 1)
                 filters[key.strip()] = value.strip()
 
@@ -200,10 +203,20 @@ class InteractiveSession(cmd.Cmd):
         role = filters.get('role')
         status = filters.get('status', 'active')
 
+        # Env var NETBOX_VERIFY_SSL=false (or 0/no/off) also disables verification
+        verify_ssl = not insecure
+        env_verify = os.environ.get('NETBOX_VERIFY_SSL')
+        if env_verify is not None and env_verify.strip().lower() in ('false', '0', 'no', 'off'):
+            verify_ssl = False
+
+        if not verify_ssl:
+            console.print("[yellow]⚠ SSL certificate verification disabled for this NetBox connection.[/yellow]")
+
         try:
             console.print("[yellow]Connecting to NetBox...[/yellow]")
             count = self.inventory.load_netbox(
-                url=url, token=token, site=site, role=role, status=status
+                url=url, token=token, site=site, role=role, status=status,
+                verify_ssl=verify_ssl
             )
         except (ValueError, ConnectionError) as e:
             console.print(f"[red]Error:[/red] {str(e)}")
@@ -657,10 +670,12 @@ class InteractiveSession(cmd.Cmd):
                 "netbox site=<site>                  # Filter by site\n"
                 "netbox role=<role>                  # Filter by role\n"
                 "netbox status=<status>              # Filter by status (default: active)\n"
+                "netbox insecure                     # Ignore SSL certificate errors\n"
                 "netbox site=hq role=access[/white]\n\n"
                 "[cyan]Credentials:[/cyan]\n"
                 "[white]• Uses NETBOX_URL / NETBOX_TOKEN env vars if set\n"
-                "• Otherwise you'll be prompted interactively[/white]",
+                "• Otherwise you'll be prompted interactively\n"
+                "• NETBOX_VERIFY_SSL=false also ignores SSL errors[/white]",
                 title="Context Help",
                 width=60
             ))

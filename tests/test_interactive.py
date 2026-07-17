@@ -81,3 +81,36 @@ def test_do_netbox_handles_connection_error(mocker, monkeypatch, capsys):
     # Should not raise
     session.do_netbox("")
     assert session.inventory.get_all_devices() == []
+
+
+def test_do_netbox_insecure_flag_disables_verification(mocker, monkeypatch):
+    """netbox insecure should disable TLS verification on the pynetbox session."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = []
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+    mocker.patch("rich.prompt.Confirm.ask", return_value=False)
+
+    session = _make_session(mocker)
+    session.do_netbox("insecure")
+
+    assert mock_api.http_session.verify is False
+
+
+def test_do_netbox_verify_ssl_env_var(mocker, monkeypatch):
+    """NETBOX_VERIFY_SSL=false should also disable TLS verification."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+    monkeypatch.setenv("NETBOX_VERIFY_SSL", "false")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = []
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+    mocker.patch("rich.prompt.Confirm.ask", return_value=False)
+
+    session = _make_session(mocker)
+    session.do_netbox("")
+
+    assert mock_api.http_session.verify is False

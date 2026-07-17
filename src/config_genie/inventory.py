@@ -156,6 +156,12 @@ class Inventory:
         api.http_session.verify = verify_ssl
         api.http_session.timeout = timeout
 
+        if not verify_ssl:
+            # Avoid noisy InsecureRequestWarning spam when verification is
+            # intentionally disabled (e.g. self-signed NetBox certs).
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         filters: Dict[str, Any] = {"status": status}
         if site:
             filters["site"] = site

@@ -106,7 +106,11 @@ You don't need to pass any runtime flags to use this — inside interactive mode
 ```bash
 config-genie
 (config-genie) netbox site=hq role=access
+
+# Ignore SSL certificate errors (e.g. self-signed NetBox certs)
+(config-genie) netbox insecure
 ```
+Alternatively, set `NETBOX_VERIFY_SSL=false` to always skip certificate verification without adding the flag each time.
 
 ## 🖥️ Usage
 
@@ -141,7 +145,7 @@ config-genie
 Available interactive commands:
 - `help` - Show available commands
 - `inventory [path]` - Load inventory file
-- `netbox [site=<site>] [role=<role>] [status=<status>]` - Load inventory from NetBox (prompts for URL/token if not set via env vars)
+- `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
 - `devices [filter]` - List and filter devices
 - `select <devices>` - Select devices for operations
 - `connect` - Connect to selected devices

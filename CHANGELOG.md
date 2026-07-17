@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `netbox` command in interactive mode — load device inventory from NetBox without any CLI flags; prompts for URL/token if `NETBOX_URL`/`NETBOX_TOKEN` aren't set, and offers to save the result as a YAML inventory file
+- `insecure` flag (and `NETBOX_VERIFY_SSL=false` env var) to skip TLS certificate verification when connecting to NetBox instances with self-signed certificates
 
 ## [0.3.0] - 2026-07-17
 
