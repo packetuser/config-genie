@@ -9,47 +9,70 @@ import pynetbox
 import yaml
 
 
-def parse_device_selection(selection: str, count: int) -> List[int]:
+def parse_device_selection(selection: str, candidates: List[Any]) -> List[int]:
     """Parse a user-provided selection string into a sorted list of unique
-    0-based indices within range(count).
+    0-based indices into `candidates`.
+
+    Each candidate must have a `.name` attribute (e.g. a Device).
 
     Accepts:
       - "all" (or empty string) -> every index
       - "none" -> no indices
-      - comma-separated 1-based numbers, e.g. "1,3,5"
+      - comma-separated 1-based row numbers, e.g. "1,3,5"
       - 1-based ranges, e.g. "1-3"
-      - any combination, e.g. "1,3-5,8"
+      - device names (case-insensitive), e.g. "sw01" or "300" if that's a
+        device's actual name rather than a valid row number
+      - any combination, e.g. "1,3-5,sw08"
 
-    Raises ValueError for out-of-range or malformed input.
+    Raises ValueError for unrecognized or out-of-range input.
     """
-    selection = selection.strip().lower()
-    if not selection or selection == "all":
+    count = len(candidates)
+    raw_selection = selection.strip()
+    if not raw_selection or raw_selection.lower() == "all":
         return list(range(count))
-    if selection == "none":
+    if raw_selection.lower() == "none":
         return []
 
+    name_lookup = {
+        str(getattr(c, "name", "")).lower(): i
+        for i, c in enumerate(candidates)
+        if getattr(c, "name", None)
+    }
+
     indices = set()
-    for part in selection.split(","):
+    for part in raw_selection.split(","):
         part = part.strip()
         if not part:
             continue
-        if "-" in part:
+
+        # Numeric range, e.g. "2-4"
+        if re.fullmatch(r"\d+-\d+", part):
             start_str, end_str = part.split("-", 1)
-            try:
-                start, end = int(start_str), int(end_str)
-            except ValueError:
-                raise ValueError(f"Invalid range: '{part}'")
+            start, end = int(start_str), int(end_str)
             if start < 1 or end > count or start > end:
                 raise ValueError(f"Range out of bounds: '{part}'")
             indices.update(range(start - 1, end))
-        else:
-            try:
-                num = int(part)
-            except ValueError:
-                raise ValueError(f"Invalid selection: '{part}'")
-            if num < 1 or num > count:
-                raise ValueError(f"Selection out of bounds: '{part}'")
-            indices.add(num - 1)
+            continue
+
+        # Plain number: prefer row number, fall back to a matching device name
+        if part.isdigit():
+            num = int(part)
+            if 1 <= num <= count:
+                indices.add(num - 1)
+                continue
+            if part.lower() in name_lookup:
+                indices.add(name_lookup[part.lower()])
+                continue
+            raise ValueError(
+                f"'{part}' is not a valid row number (1-{count}) or a matching device name"
+            )
+
+        # Device name match
+        if part.lower() in name_lookup:
+            indices.add(name_lookup[part.lower()])
+            continue
+
+        raise ValueError(f"No device named '{part}' found among the candidates")
 
     return sorted(indices)
 

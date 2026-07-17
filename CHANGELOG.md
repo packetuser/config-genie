@@ -10,9 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `netbox` command in interactive mode — load device inventory from NetBox without any CLI flags; prompts for URL/token if `NETBOX_URL`/`NETBOX_TOKEN` aren't set, and offers to save the result as a YAML inventory file
 - `insecure` flag (and `NETBOX_VERIFY_SSL=false` env var) to skip TLS certificate verification when connecting to NetBox instances with self-signed certificates
-- Device selection step for NetBox import: after fetching candidates, both `config-genie netbox` (CLI) and the interactive `netbox` command display a numbered table and prompt for which devices to import (supports `all`, `none`, comma lists, and ranges like `1,3-5`); CLI adds a `--select` flag to skip the prompt
+- Device selection step for NetBox import: after fetching candidates, both `config-genie netbox` (CLI) and the interactive `netbox` command display a numbered table and prompt for which devices to import (supports `all`, `none`, comma lists, ranges like `1,3-5`, and device names); CLI adds a `--select` flag to skip the prompt
 - Default role filtering: NetBox import candidates are limited to device roles containing "switch" (e.g. "Edge Switch", "Access Switch") unless `--role`/`role=` is given, or `--role all`/`role=all` is used to see every role
 - `Inventory.fetch_netbox_devices()` and `parse_device_selection()` helpers backing the new selection workflow
+
+### Fixed
+- NetBox device selection prompt now accepts device names (e.g. a switch literally named `300`) instead of only interpreting numeric input as a row number, which previously raised "Invalid selection" for numeric-looking device names
 
 ## [0.3.0] - 2026-07-17
 

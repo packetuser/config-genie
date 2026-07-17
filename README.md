@@ -85,6 +85,7 @@ config-genie netbox --site hq --role all
 # Skip the interactive selection prompt entirely
 config-genie netbox --select all
 config-genie netbox --select "1,3-5"
+config-genie netbox --select "sw01,sw02"
 
 # Save the imported devices to a local YAML file for reuse
 config-genie netbox --site hq --save devices.yml
@@ -92,9 +93,9 @@ config-genie netbox --site hq --save devices.yml
 
 After fetching, Config-Genie displays a numbered table of candidate devices and prompts:
 ```
-Select devices to import (numbers, ranges like 1-3, 'all', or 'none') (all):
+Select devices to import (numbers, ranges like 1-3, names, 'all', or 'none') (all):
 ```
-Enter `all`, `none`, individual numbers (`1,3`), ranges (`2-4`), or a combination (`1,3-5`).
+Enter `all`, `none`, row numbers (`1,3`), ranges (`2-4`), device names (`sw01,sw02`), or any combination (`1,3-5,sw08`). Device names take priority whenever a plain number doesn't match a valid row — so a device literally named `300` can still be selected by typing `300`, even though it's not row 300.
 
 Credentials/URL can also be passed explicitly instead of using environment variables:
 ```bash

@@ -175,7 +175,7 @@ def templates() -> None:
 @click.option('--role', help="Filter devices by exact role slug/name, or 'all' to disable the default switch-role filter")
 @click.option('--status', default='active', show_default=True, help='Filter devices by status')
 @click.option('--no-verify-ssl', is_flag=True, help='Disable TLS certificate verification')
-@click.option('--select', 'select_str', help="Devices to import, e.g. '1,3-5' or 'all' (skips the interactive prompt)")
+@click.option('--select', 'select_str', help="Devices to import by row number, range, or name, e.g. '1,3-5' or 'sw01,sw02' or 'all' (skips the interactive prompt)")
 @click.option('--save', 'save_path', help='Save fetched inventory to a YAML file')
 def netbox(
     url: Optional[str],
@@ -245,7 +245,7 @@ def netbox(
     if select_str is None:
         try:
             select_str = Prompt.ask(
-                "Select devices to import (numbers, ranges like 1-3, 'all', or 'none')",
+                "Select devices to import (numbers, ranges like 1-3, names, 'all', or 'none')",
                 default="all"
             ).strip()
         except (EOFError, KeyboardInterrupt):
@@ -253,7 +253,7 @@ def netbox(
             return
 
     try:
-        indices = parse_device_selection(select_str, len(candidates))
+        indices = parse_device_selection(select_str, candidates)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {str(e)}")
         sys.exit(1)

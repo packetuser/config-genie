@@ -251,19 +251,34 @@ def test_parse_device_selection():
     """Test the shared selection-string parser used by CLI/interactive netbox import."""
     from config_genie.inventory import parse_device_selection
 
-    assert parse_device_selection("all", 5) == [0, 1, 2, 3, 4]
-    assert parse_device_selection("", 5) == [0, 1, 2, 3, 4]
-    assert parse_device_selection("none", 5) == []
-    assert parse_device_selection("1,3", 5) == [0, 2]
-    assert parse_device_selection("2-4", 5) == [1, 2, 3]
-    assert parse_device_selection("1,3-4", 5) == [0, 2, 3]
+    candidates = [
+        Device(name="sw01", ip_address="10.0.0.1"),
+        Device(name="sw02", ip_address="10.0.0.2"),
+        Device(name="300", ip_address="10.0.0.3"),
+        Device(name="sw04", ip_address="10.0.0.4"),
+        Device(name="sw05", ip_address="10.0.0.5"),
+    ]
+
+    assert parse_device_selection("all", candidates) == [0, 1, 2, 3, 4]
+    assert parse_device_selection("", candidates) == [0, 1, 2, 3, 4]
+    assert parse_device_selection("none", candidates) == []
+    assert parse_device_selection("1,3", candidates) == [0, 2]
+    assert parse_device_selection("2-4", candidates) == [1, 2, 3]
+    assert parse_device_selection("1,3-4", candidates) == [0, 2, 3]
+
+    # Selecting by device name, including a purely numeric name that isn't
+    # a valid row number
+    assert parse_device_selection("sw01", candidates) == [0]
+    assert parse_device_selection("SW02", candidates) == [1]  # case-insensitive
+    assert parse_device_selection("300", candidates) == [2]  # name, not row 300
+    assert parse_device_selection("sw01,sw05", candidates) == [0, 4]
 
     with pytest.raises(ValueError):
-        parse_device_selection("6", 5)
+        parse_device_selection("6", candidates)
     with pytest.raises(ValueError):
-        parse_device_selection("0", 5)
+        parse_device_selection("0", candidates)
     with pytest.raises(ValueError):
-        parse_device_selection("abc", 5)
+        parse_device_selection("no-such-device", candidates)
 
 
 def test_inventory_fetch_netbox_devices_role_contains(mocker):

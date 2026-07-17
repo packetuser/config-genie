@@ -259,7 +259,7 @@ class InteractiveSession(cmd.Cmd):
 
         try:
             selection = Prompt.ask(
-                "Select devices to import (numbers, ranges like 1-3, 'all', or 'none')",
+                "Select devices to import (numbers, ranges like 1-3, names, 'all', or 'none')",
                 default="all"
             ).strip()
         except (EOFError, KeyboardInterrupt):
@@ -267,7 +267,7 @@ class InteractiveSession(cmd.Cmd):
             return
 
         try:
-            indices = parse_device_selection(selection, len(candidates))
+            indices = parse_device_selection(selection, candidates)
         except ValueError as e:
             console.print(f"[red]Error:[/red] {str(e)}")
             return
