@@ -614,22 +614,30 @@ class InteractiveSession(cmd.Cmd):
     
     def _load_inventory(self, path: str) -> None:
         """Load inventory from file."""
+        inventory_path = Path(path)
+        if not inventory_path.exists():
+            console.print(f"[red]File not found: {path}[/red]")
+            return
+
+        # Loading an inventory file replaces the current inventory rather
+        # than merging into it, so re-loading the same (or another) file
+        # doesn't fail with "duplicate device name" errors. Keep a backup
+        # so a bad file doesn't wipe out an otherwise good inventory.
+        previous_devices = dict(self.inventory.devices)
+        self.inventory.devices.clear()
+
         try:
-            inventory_path = Path(path)
-            if not inventory_path.exists():
-                console.print(f"[red]File not found: {path}[/red]")
-                return
-            
             if inventory_path.suffix.lower() in ['.yml', '.yaml']:
                 self.inventory.load_yaml(path)
             else:
                 self.inventory.load_txt(path)
-            
+
             self.inventory_path = path
             device_count = len(self.inventory.devices)
             console.print(f"[green]✓[/green] Loaded {device_count} devices from {path}")
-            
+
         except Exception as e:
+            self.inventory.devices = previous_devices
             console.print(f"[red]Error loading inventory: {str(e)}[/red]")
     
 

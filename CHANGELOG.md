@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - NetBox device selection prompt now accepts device names (e.g. a switch literally named `300`) instead of only interpreting numeric input as a row number, which previously raised "Invalid selection" for numeric-looking device names
+- `inventory <path>` in interactive mode now replaces the currently loaded inventory instead of merging into it, fixing an "Error loading inventory: Duplicate device name" error when re-loading an inventory file (including the one auto-loaded at startup). A failed reload no longer wipes out the previously loaded inventory.
 
 ## [0.3.0] - 2026-07-17
 

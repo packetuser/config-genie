@@ -208,3 +208,50 @@ def test_do_netbox_selection_imports_subset(mocker, monkeypatch):
 
     assert session.inventory.get_device("sw01") is not None
     assert session.inventory.get_device("sw02") is None
+
+
+def test_load_inventory_allows_reload_without_duplicate_error(mocker, tmp_path):
+    """Re-loading an inventory file (or the auto-loaded one) should replace
+    devices instead of raising 'duplicate device name'."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    assert len(session.inventory.devices) == 1
+
+    # Reload the same file again - should not raise or duplicate
+    session._load_inventory(str(inventory_file))
+    assert len(session.inventory.devices) == 1
+    assert session.inventory.get_device("sw01") is not None
+
+
+def test_load_inventory_keeps_previous_on_failure(mocker, tmp_path):
+    """A failed reload should not wipe out the previously loaded inventory."""
+    good_file = tmp_path / "good.yaml"
+    good_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+    bad_file = tmp_path / "bad.yaml"
+    bad_file.write_text(
+        "devices:\n"
+        "  - name: bad\n"
+        "    ip_address: not-an-ip!!!\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(good_file))
+    assert len(session.inventory.devices) == 1
+
+    session._load_inventory(str(bad_file))
+    # Previous good inventory should still be intact
+    assert len(session.inventory.devices) == 1
+    assert session.inventory.get_device("sw01") is not None
