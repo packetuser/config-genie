@@ -9,6 +9,51 @@ import pynetbox
 import yaml
 
 
+def parse_device_selection(selection: str, count: int) -> List[int]:
+    """Parse a user-provided selection string into a sorted list of unique
+    0-based indices within range(count).
+
+    Accepts:
+      - "all" (or empty string) -> every index
+      - "none" -> no indices
+      - comma-separated 1-based numbers, e.g. "1,3,5"
+      - 1-based ranges, e.g. "1-3"
+      - any combination, e.g. "1,3-5,8"
+
+    Raises ValueError for out-of-range or malformed input.
+    """
+    selection = selection.strip().lower()
+    if not selection or selection == "all":
+        return list(range(count))
+    if selection == "none":
+        return []
+
+    indices = set()
+    for part in selection.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_str, end_str = part.split("-", 1)
+            try:
+                start, end = int(start_str), int(end_str)
+            except ValueError:
+                raise ValueError(f"Invalid range: '{part}'")
+            if start < 1 or end > count or start > end:
+                raise ValueError(f"Range out of bounds: '{part}'")
+            indices.update(range(start - 1, end))
+        else:
+            try:
+                num = int(part)
+            except ValueError:
+                raise ValueError(f"Invalid selection: '{part}'")
+            if num < 1 or num > count:
+                raise ValueError(f"Selection out of bounds: '{part}'")
+            indices.add(num - 1)
+
+    return sorted(indices)
+
+
 def _validate_ip_address(ip_address: str) -> str:
     """Validate IP address format."""
     # Basic IP address validation (IPv4)
@@ -138,7 +183,48 @@ class Inventory:
         environment variables when not passed explicitly. Requires a
         NetBox API token with read access to DCIM devices.
 
+        Fetches and commits *all* matching devices directly into this
+        inventory. To review/select devices before committing them, use
+        fetch_netbox_devices() instead.
+
         Returns the number of devices loaded.
+        """
+        devices = self.fetch_netbox_devices(
+            url=url,
+            token=token,
+            site=site,
+            role=role,
+            status=status,
+            verify_ssl=verify_ssl,
+            timeout=timeout,
+        )
+        for device in devices:
+            self.devices[device.name] = device
+        return len(devices)
+
+    def fetch_netbox_devices(
+        self,
+        url: Optional[str] = None,
+        token: Optional[str] = None,
+        site: Optional[str] = None,
+        role: Optional[str] = None,
+        role_contains: Optional[str] = None,
+        status: str = "active",
+        verify_ssl: bool = True,
+        timeout: int = 30,
+    ) -> List["Device"]:
+        """Fetch candidate devices from a NetBox instance without committing
+        them to this inventory. Useful for letting a user review/select
+        devices before importing.
+
+        `role` performs an exact server-side filter on NetBox's role
+        parameter. `role_contains` performs a case-insensitive client-side
+        substring match against each device's resolved role name (e.g.
+        "switch" matches "Edge Switch", "Core Switch", "access-switch",
+        etc.) and is applied in addition to any server-side filters.
+
+        Credentials/URL fall back to the NETBOX_URL and NETBOX_TOKEN
+        environment variables when not passed explicitly.
         """
         netbox_url = url or os.environ.get("NETBOX_URL", "")
         netbox_token = token or os.environ.get("NETBOX_TOKEN")
@@ -168,20 +254,23 @@ class Inventory:
         if role:
             filters["role"] = role
 
-        loaded = 0
+        fetched: List["Device"] = []
         try:
             for record in api.dcim.devices.filter(**filters):
                 device = self._device_from_netbox_record(record)
                 if device is None:
                     continue
-                self.devices[device.name] = device
-                loaded += 1
+                if role_contains and (
+                    not device.role or role_contains.lower() not in device.role.lower()
+                ):
+                    continue
+                fetched.append(device)
         except pynetbox.core.query.RequestError as e:
             raise ConnectionError(f"Failed to reach NetBox at {netbox_url}: {e}")
         except (ConnectionError, OSError) as e:
             raise ConnectionError(f"Failed to reach NetBox at {netbox_url}: {e}")
 
-        return loaded
+        return fetched
 
     @staticmethod
     def _device_from_netbox_record(record: Any) -> Optional["Device"]:

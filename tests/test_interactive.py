@@ -28,6 +28,7 @@ def test_do_netbox_uses_env_vars(mocker, monkeypatch, capsys):
     mock_api_factory = mocker.patch(
         "config_genie.inventory.pynetbox.api", return_value=mock_api
     )
+    mocker.patch("config_genie.interactive.Prompt.ask", return_value="all")
     mocker.patch("rich.prompt.Confirm.ask", return_value=False)
 
     session = _make_session(mocker)
@@ -114,3 +115,96 @@ def test_do_netbox_verify_ssl_env_var(mocker, monkeypatch):
     session.do_netbox("")
 
     assert mock_api.http_session.verify is False
+
+
+def test_do_netbox_defaults_to_switch_roles(mocker, monkeypatch):
+    """Without an explicit role filter, only devices with 'switch' in their
+    role name should be presented as candidates."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = [
+        {
+            "name": "sw01",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Edge Switch"},
+        },
+        {
+            "name": "rtr01",
+            "primary_ip4": {"address": "10.0.0.2/24"},
+            "device_type": {"model": "ISR4451"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Router"},
+        },
+    ]
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+    mocker.patch("config_genie.interactive.Prompt.ask", return_value="all")
+    mocker.patch("rich.prompt.Confirm.ask", return_value=False)
+
+    session = _make_session(mocker)
+    session.do_netbox("")
+
+    mock_api.dcim.devices.filter.assert_called_once_with(status="active")
+    assert session.inventory.get_device("sw01") is not None
+    assert session.inventory.get_device("rtr01") is None
+
+
+def test_do_netbox_role_all_disables_switch_filter(mocker, monkeypatch):
+    """role=all should bypass the default switch-only filtering."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = [
+        {
+            "name": "rtr01",
+            "primary_ip4": {"address": "10.0.0.2/24"},
+            "device_type": {"model": "ISR4451"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Router"},
+        },
+    ]
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+    mocker.patch("config_genie.interactive.Prompt.ask", return_value="all")
+    mocker.patch("rich.prompt.Confirm.ask", return_value=False)
+
+    session = _make_session(mocker)
+    session.do_netbox("role=all")
+
+    assert session.inventory.get_device("rtr01") is not None
+
+
+def test_do_netbox_selection_imports_subset(mocker, monkeypatch):
+    """Selecting a subset of candidates should only import chosen devices."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = [
+        {
+            "name": "sw01",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Edge Switch"},
+        },
+        {
+            "name": "sw02",
+            "primary_ip4": {"address": "10.0.0.2/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Access Switch"},
+        },
+    ]
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+    mocker.patch("config_genie.interactive.Prompt.ask", return_value="1")
+    mocker.patch("rich.prompt.Confirm.ask", return_value=False)
+
+    session = _make_session(mocker)
+    session.do_netbox("")
+
+    assert session.inventory.get_device("sw01") is not None
+    assert session.inventory.get_device("sw02") is None

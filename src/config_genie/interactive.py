@@ -174,6 +174,7 @@ class InteractiveSession(cmd.Cmd):
     def do_netbox(self, arg: str) -> None:
         """Load device inventory from a NetBox instance. Usage: netbox [site=<site>] [role=<role>] [status=<status>] [insecure]"""
         import os
+        from .inventory import parse_device_selection
 
         # Parse optional key=value filters and bare flags from the command line
         filters: Dict[str, str] = {}
@@ -203,6 +204,16 @@ class InteractiveSession(cmd.Cmd):
         role = filters.get('role')
         status = filters.get('status', 'active')
 
+        # By default, only surface devices whose role name contains "switch"
+        # (e.g. "Edge Switch", "Access Switch", "core-switch"). Pass role=all
+        # to disable this and see every role, or role=<name> for an exact
+        # server-side role filter instead.
+        role_contains: Optional[str] = None
+        if role is None:
+            role_contains = "switch"
+        elif role.strip().lower() == "all":
+            role = None
+
         # Env var NETBOX_VERIFY_SSL=false (or 0/no/off) also disables verification
         verify_ssl = not insecure
         env_verify = os.environ.get('NETBOX_VERIFY_SSL')
@@ -214,16 +225,63 @@ class InteractiveSession(cmd.Cmd):
 
         try:
             console.print("[yellow]Connecting to NetBox...[/yellow]")
-            count = self.inventory.load_netbox(
-                url=url, token=token, site=site, role=role, status=status,
-                verify_ssl=verify_ssl
+            candidates = self.inventory.fetch_netbox_devices(
+                url=url, token=token, site=site, role=role, role_contains=role_contains,
+                status=status, verify_ssl=verify_ssl
             )
         except (ValueError, ConnectionError) as e:
             console.print(f"[red]Error:[/red] {str(e)}")
             return
 
+        if not candidates:
+            console.print("[yellow]No matching devices found in NetBox.[/yellow]")
+            return
+
+        table = Table(title=f"NetBox Devices ({len(candidates)} found)")
+        table.add_column("#", justify="right")
+        table.add_column("Name", style="cyan")
+        table.add_column("IP Address")
+        table.add_column("Model")
+        table.add_column("Site")
+        table.add_column("Role")
+
+        for i, device in enumerate(candidates, 1):
+            table.add_row(
+                str(i),
+                str(device.name),
+                str(device.ip_address),
+                str(device.model or "-"),
+                str(device.site or "-"),
+                str(device.role or "-")
+            )
+
+        console.print(table)
+
+        try:
+            selection = Prompt.ask(
+                "Select devices to import (numbers, ranges like 1-3, 'all', or 'none')",
+                default="all"
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]Import cancelled.[/yellow]")
+            return
+
+        try:
+            indices = parse_device_selection(selection, len(candidates))
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {str(e)}")
+            return
+
+        if not indices:
+            console.print("[yellow]No devices selected. Nothing imported.[/yellow]")
+            return
+
+        for i in indices:
+            device = candidates[i]
+            self.inventory.devices[device.name] = device
+
         self.inventory_path = f"netbox:{url}"
-        console.print(f"[green]✓[/green] Loaded {count} devices from NetBox")
+        console.print(f"[green]✓[/green] Imported {len(indices)} of {len(candidates)} devices from NetBox")
 
         try:
             if Confirm.ask("Save this inventory to a local YAML file?", default=False):

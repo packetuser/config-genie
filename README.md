@@ -72,17 +72,29 @@ export NETBOX_URL=https://netbox.yourcompany.com
 export NETBOX_TOKEN=<your-api-token>   # NetBox API token with read access to DCIM devices
 ```
 
-**Fetch inventory:**
+**Default filtering:** by default, only devices whose NetBox role name contains "switch" (case-insensitive — e.g. "Edge Switch", "Access Switch", "core-switch") are shown as import candidates. Use `--role all` (or `role=all` in interactive mode) to see every role, or `--role <name>` for an exact server-side role filter instead.
+
+**Fetch and select devices to import:**
 ```bash
-# Fetch all active devices
+# Show candidate devices (default: any role containing "switch"), then choose which to import
 config-genie netbox
 
-# Filter by site and/or role
-config-genie netbox --site hq --role access
+# Filter by site, see all roles
+config-genie netbox --site hq --role all
 
-# Save the fetched inventory to a local YAML file for reuse
+# Skip the interactive selection prompt entirely
+config-genie netbox --select all
+config-genie netbox --select "1,3-5"
+
+# Save the imported devices to a local YAML file for reuse
 config-genie netbox --site hq --save devices.yml
 ```
+
+After fetching, Config-Genie displays a numbered table of candidate devices and prompts:
+```
+Select devices to import (numbers, ranges like 1-3, 'all', or 'none') (all):
+```
+Enter `all`, `none`, individual numbers (`1,3`), ranges (`2-4`), or a combination (`1,3-5`).
 
 Credentials/URL can also be passed explicitly instead of using environment variables:
 ```bash
@@ -95,17 +107,19 @@ config-genie netbox --url https://netbox.yourcompany.com --token <token>
 | `--url` | NetBox base URL (falls back to `NETBOX_URL`) |
 | `--token` | NetBox API token (falls back to `NETBOX_TOKEN`) |
 | `--site` | Filter devices by site slug/name |
-| `--role` | Filter devices by device role slug/name |
+| `--role` | Exact role slug/name filter, or `all` to disable the default "switch" role filter |
 | `--status` | Filter devices by status (default: `active`) |
 | `--no-verify-ssl` | Disable TLS certificate verification (self-signed NetBox instances) |
-| `--save` | Save fetched inventory to a YAML file |
+| `--select` | Devices to import (e.g. `1,3-5` or `all`) — skips the interactive prompt |
+| `--save` | Save imported devices to a YAML file |
 
 Devices without a primary IPv4 address in NetBox are skipped, since Config-Genie requires a reachable IP per device.
 
-You don't need to pass any runtime flags to use this — inside interactive mode, just run the `netbox` command and you'll be prompted for anything not already set via environment variables:
+You don't need to pass any runtime flags to use this — inside interactive mode, just run the `netbox` command and you'll be prompted for anything not already set via environment variables, then shown the same candidate table and selection prompt:
 ```bash
 config-genie
-(config-genie) netbox site=hq role=access
+(config-genie) netbox site=hq
+(config-genie) netbox role=all          # see every role, not just switches
 
 # Ignore SSL certificate errors (e.g. self-signed NetBox certs)
 (config-genie) netbox insecure
@@ -145,7 +159,7 @@ config-genie
 Available interactive commands:
 - `help` - Show available commands
 - `inventory [path]` - Load inventory file
-- `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
+- `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox; shows a numbered list of matching devices (default: roles containing "switch") and prompts which ones to import (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
 - `devices [filter]` - List and filter devices
 - `select <devices>` - Select devices for operations
 - `connect` - Connect to selected devices

@@ -245,3 +245,74 @@ def test_inventory_netbox_verify_ssl_false(mocker):
     )
 
     assert mock_api.http_session.verify is False
+
+
+def test_parse_device_selection():
+    """Test the shared selection-string parser used by CLI/interactive netbox import."""
+    from config_genie.inventory import parse_device_selection
+
+    assert parse_device_selection("all", 5) == [0, 1, 2, 3, 4]
+    assert parse_device_selection("", 5) == [0, 1, 2, 3, 4]
+    assert parse_device_selection("none", 5) == []
+    assert parse_device_selection("1,3", 5) == [0, 2]
+    assert parse_device_selection("2-4", 5) == [1, 2, 3]
+    assert parse_device_selection("1,3-4", 5) == [0, 2, 3]
+
+    with pytest.raises(ValueError):
+        parse_device_selection("6", 5)
+    with pytest.raises(ValueError):
+        parse_device_selection("0", 5)
+    with pytest.raises(ValueError):
+        parse_device_selection("abc", 5)
+
+
+def test_inventory_fetch_netbox_devices_role_contains(mocker):
+    """Test client-side role_contains substring filtering."""
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = [
+        {
+            "name": "sw01",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Edge Switch"},
+        },
+        {
+            "name": "rtr01",
+            "primary_ip4": {"address": "10.0.0.2/24"},
+            "device_type": {"model": "ISR4451"},
+            "site": {"name": "HQ"},
+            "role": {"name": "Router"},
+        },
+    ]
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+
+    inventory = Inventory()
+    devices = inventory.fetch_netbox_devices(
+        url="https://netbox.example.com", token="mytoken", role_contains="switch"
+    )
+
+    assert [d.name for d in devices] == ["sw01"]
+    # fetch_netbox_devices should not mutate the inventory itself
+    assert inventory.get_all_devices() == []
+
+
+def test_inventory_load_netbox_commits_all_fetched(mocker):
+    """load_netbox() should remain an all-or-nothing convenience wrapper."""
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = [
+        {
+            "name": "sw01",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "access"},
+        },
+    ]
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+
+    inventory = Inventory()
+    count = inventory.load_netbox(url="https://netbox.example.com", token="mytoken")
+
+    assert count == 1
+    assert inventory.get_device("sw01") is not None

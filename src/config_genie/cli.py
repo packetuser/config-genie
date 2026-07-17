@@ -172,9 +172,10 @@ def templates() -> None:
 @click.option('--url', help='NetBox base URL (or set NETBOX_URL env var)')
 @click.option('--token', help='NetBox API token (or set NETBOX_TOKEN env var)')
 @click.option('--site', help='Filter devices by site slug/name')
-@click.option('--role', help='Filter devices by device role slug/name')
+@click.option('--role', help="Filter devices by exact role slug/name, or 'all' to disable the default switch-role filter")
 @click.option('--status', default='active', show_default=True, help='Filter devices by status')
 @click.option('--no-verify-ssl', is_flag=True, help='Disable TLS certificate verification')
+@click.option('--select', 'select_str', help="Devices to import, e.g. '1,3-5' or 'all' (skips the interactive prompt)")
 @click.option('--save', 'save_path', help='Save fetched inventory to a YAML file')
 def netbox(
     url: Optional[str],
@@ -183,20 +184,33 @@ def netbox(
     role: Optional[str],
     status: str,
     no_verify_ssl: bool,
+    select_str: Optional[str],
     save_path: Optional[str],
 ) -> None:
-    """Pull device inventory from a NetBox instance."""
-    from .inventory import Inventory
+    """Pull device inventory from a NetBox instance.
+
+    By default, only devices whose role name contains "switch" (e.g. "Edge
+    Switch", "Access Switch") are shown as candidates. Use --role all to see
+    every role, or --role <name> for an exact server-side role filter.
+    """
+    from .inventory import Inventory, parse_device_selection
 
     inventory = Inventory()
 
+    role_contains: Optional[str] = None
+    if role is None:
+        role_contains = "switch"
+    elif role.strip().lower() == "all":
+        role = None
+
     try:
         console.print("[yellow]Connecting to NetBox...[/yellow]")
-        count = inventory.load_netbox(
+        candidates = inventory.fetch_netbox_devices(
             url=url,
             token=token,
             site=site,
             role=role,
+            role_contains=role_contains,
             status=status,
             verify_ssl=not no_verify_ssl,
         )
@@ -204,18 +218,21 @@ def netbox(
         console.print(f"[red]Error:[/red] {str(e)}")
         sys.exit(1)
 
-    console.print(f"[green]✓[/green] Loaded {count} devices from NetBox")
+    if not candidates:
+        console.print("[yellow]No matching devices found in NetBox.[/yellow]")
+        return
 
-    devices = inventory.get_all_devices()
-    table = Table(title="NetBox Device Inventory")
+    table = Table(title=f"NetBox Devices ({len(candidates)} found)")
+    table.add_column("#", justify="right")
     table.add_column("Name")
     table.add_column("IP Address")
     table.add_column("Model")
     table.add_column("Site")
     table.add_column("Role")
 
-    for device in devices:
+    for i, device in enumerate(candidates, 1):
         table.add_row(
+            str(i),
             str(device.name),
             str(device.ip_address),
             str(device.model or "-"),
@@ -224,6 +241,32 @@ def netbox(
         )
 
     console.print(table)
+
+    if select_str is None:
+        try:
+            select_str = Prompt.ask(
+                "Select devices to import (numbers, ranges like 1-3, 'all', or 'none')",
+                default="all"
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]Import cancelled.[/yellow]")
+            return
+
+    try:
+        indices = parse_device_selection(select_str, len(candidates))
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}")
+        sys.exit(1)
+
+    if not indices:
+        console.print("[yellow]No devices selected. Nothing imported.[/yellow]")
+        return
+
+    devices = [candidates[i] for i in indices]
+    for device in devices:
+        inventory.devices[device.name] = device
+
+    console.print(f"[green]✓[/green] Imported {len(devices)} of {len(candidates)} devices from NetBox")
 
     if save_path:
         data = {
