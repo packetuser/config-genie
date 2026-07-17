@@ -5,6 +5,11 @@ All notable changes to Config-Genie will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `netbox` command in interactive mode — load device inventory from NetBox without any CLI flags; prompts for URL/token if `NETBOX_URL`/`NETBOX_TOKEN` aren't set, and offers to save the result as a YAML inventory file
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

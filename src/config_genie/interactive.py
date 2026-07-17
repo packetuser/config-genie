@@ -129,6 +129,7 @@ class InteractiveSession(cmd.Cmd):
             console.print(Panel.fit(
                 "[bold white]Available Commands:[/bold white]\n\n"
                 "[white]inventory[/white] - Load and manage device inventory\n"
+                "[white]netbox[/white] - Load device inventory from NetBox\n"
                 "[white]devices[/white] - List and filter devices\n"
                 "[white]select[/white] - Select devices for operations\n"
                 "[white]connect[/white] - Connect to selected devices\n"
@@ -169,6 +170,80 @@ class InteractiveSession(cmd.Cmd):
                     self._load_inventory(path)
         else:
             self._load_inventory(arg)
+    
+    def do_netbox(self, arg: str) -> None:
+        """Load device inventory from a NetBox instance. Usage: netbox [site=<site>] [role=<role>] [status=<status>]"""
+        import os
+
+        # Parse optional key=value filters from the command line
+        filters: Dict[str, str] = {}
+        for token in arg.split():
+            if '=' in token:
+                key, value = token.split('=', 1)
+                filters[key.strip()] = value.strip()
+
+        url = os.environ.get('NETBOX_URL')
+        if not url:
+            url = Prompt.ask("NetBox URL (e.g. https://netbox.example.com)").strip()
+            if not url:
+                console.print("[red]NetBox URL is required.[/red]")
+                return
+
+        token = os.environ.get('NETBOX_TOKEN')
+        if not token:
+            token = getpass.getpass("NetBox API token: ").strip()
+            if not token:
+                console.print("[red]NetBox token is required.[/red]")
+                return
+
+        site = filters.get('site')
+        role = filters.get('role')
+        status = filters.get('status', 'active')
+
+        try:
+            console.print("[yellow]Connecting to NetBox...[/yellow]")
+            count = self.inventory.load_netbox(
+                url=url, token=token, site=site, role=role, status=status
+            )
+        except (ValueError, ConnectionError) as e:
+            console.print(f"[red]Error:[/red] {str(e)}")
+            return
+
+        self.inventory_path = f"netbox:{url}"
+        console.print(f"[green]✓[/green] Loaded {count} devices from NetBox")
+
+        try:
+            if Confirm.ask("Save this inventory to a local YAML file?", default=False):
+                save_path = Prompt.ask("File path", default="devices.yaml").strip()
+                if save_path:
+                    self._save_inventory_yaml(save_path)
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]Skipping save.[/yellow]")
+    
+    def _save_inventory_yaml(self, path: str) -> None:
+        """Persist the current in-memory inventory to a YAML file."""
+        import yaml as _yaml
+
+        devices = self.inventory.get_all_devices()
+        data = {
+            'devices': [
+                {
+                    'name': d.name,
+                    'ip_address': d.ip_address,
+                    'model': d.model,
+                    'site': d.site,
+                    'role': d.role,
+                }
+                for d in devices
+            ]
+        }
+        try:
+            with open(path, 'w') as f:
+                _yaml.safe_dump(data, f, sort_keys=False)
+            self.inventory_path = path
+            console.print(f"[green]✓[/green] Saved inventory to {path}")
+        except OSError as e:
+            console.print(f"[red]Error saving inventory: {str(e)}[/red]")
     
     def do_devices(self, arg: str) -> None:
         """List and filter devices. Usage: devices [filter]"""
@@ -570,6 +645,22 @@ class InteractiveSession(cmd.Cmd):
                 "[white]• ./devices.yaml\n"
                 "• ./config-genie/devices.yaml\n"
                 "• ~/config-genie/devices.yaml[/white]",
+                title="Context Help",
+                width=60
+            ))
+        
+        elif command == "netbox":
+            console.print(Panel(
+                "[bold white]netbox[/bold white] - [white]Load device inventory from NetBox[/white]\n\n"
+                "[cyan]Usage:[/cyan]\n"
+                "[white]netbox                              # Load all active devices\n"
+                "netbox site=<site>                  # Filter by site\n"
+                "netbox role=<role>                  # Filter by role\n"
+                "netbox status=<status>              # Filter by status (default: active)\n"
+                "netbox site=hq role=access[/white]\n\n"
+                "[cyan]Credentials:[/cyan]\n"
+                "[white]• Uses NETBOX_URL / NETBOX_TOKEN env vars if set\n"
+                "• Otherwise you'll be prompted interactively[/white]",
                 title="Context Help",
                 width=60
             ))

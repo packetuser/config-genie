@@ -102,6 +102,12 @@ config-genie netbox --url https://netbox.yourcompany.com --token <token>
 
 Devices without a primary IPv4 address in NetBox are skipped, since Config-Genie requires a reachable IP per device.
 
+You don't need to pass any runtime flags to use this — inside interactive mode, just run the `netbox` command and you'll be prompted for anything not already set via environment variables:
+```bash
+config-genie
+(config-genie) netbox site=hq role=access
+```
+
 ## 🖥️ Usage
 
 ### Command Line Interface
@@ -135,6 +141,7 @@ config-genie
 Available interactive commands:
 - `help` - Show available commands
 - `inventory [path]` - Load inventory file
+- `netbox [site=<site>] [role=<role>] [status=<status>]` - Load inventory from NetBox (prompts for URL/token if not set via env vars)
 - `devices [filter]` - List and filter devices
 - `select <devices>` - Select devices for operations
 - `connect` - Connect to selected devices
