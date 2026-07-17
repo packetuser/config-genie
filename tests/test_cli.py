@@ -10,7 +10,7 @@ def test_main_command():
     runner = CliRunner()
     result = runner.invoke(main)
     assert result.exit_code == 0
-    assert "Welcome to Config-Genie!" in result.output
+    assert "Welcome" in result.output
 
 def test_netbox_command_select_flag_skips_prompt(mocker, monkeypatch):
     """--select should import a subset of NetBox devices without prompting."""

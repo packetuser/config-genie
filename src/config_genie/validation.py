@@ -115,6 +115,9 @@ class CiscoCommandValidator:
     def _check_command_syntax(self, commands: List[str], result: ValidationResult) -> None:
         """Check basic command syntax."""
         for i, command in enumerate(commands):
+            # Check for a leading space before stripping it, otherwise this
+            # check can never trigger.
+            has_leading_space = command.startswith(' ')
             command = command.strip()
             if not command:
                 continue
@@ -124,7 +127,7 @@ class CiscoCommandValidator:
                 continue
             
             # Check for common syntax errors
-            if command.startswith(' '):
+            if has_leading_space:
                 result.add_warning(f"Line {i+1}: Command starts with space: '{command}'")
             
             # Check for incomplete commands
@@ -196,7 +199,7 @@ class CiscoCommandValidator:
                 interface_count += 1
         
         # Recommend saving if making changes
-        config_changes = any(not cmd.strip().startswith(('show', '!', '')) 
+        config_changes = any(not cmd.strip().startswith(('show', '!'))
                            for cmd in commands if cmd.strip())
         
         if config_changes and not has_save:
@@ -217,8 +220,14 @@ class CiscoCommandValidator:
         for command in commands:
             command_lower = command.lower()
             
-            # Check for commands not supported on certain models
-            if 'stack' in command_lower and model.startswith('2960'):
+            # Check for stacking commands not supported on certain models.
+            # Stack-related config includes literal "stack" (e.g. "stack
+            # cable") as well as stack member commands like
+            # "switch <n> priority ..." or "switch <n> renumber ...".
+            is_stack_command = 'stack' in command_lower or re.match(
+                r'^switch\s+\d+\s+(priority|renumber|provision)', command_lower
+            )
+            if is_stack_command and model.startswith('2960'):
                 if not model.endswith('x') and not model.endswith('xr'):
                     result.add_warning(f"Stack commands may not be supported on {device.model}")
             
@@ -312,11 +321,16 @@ class SafetyChecker:
         for command in commands:
             command = command.strip().lower()
             
-            # Commands that are hard to rollback
-            if any(pattern in command for pattern in [
-                'erase', 'delete', 'format', 'reload',
-                'write erase', 'no vlan', 'shutdown'
-            ]):
+            # Commands that are hard to rollback. "shutdown" (interface
+            # admin-down) is risky, but "no shutdown" is itself the safe
+            # undo/rollback command and must not be flagged.
+            is_risky = any(pattern in command for pattern in [
+                'erase', 'delete', 'format', 'reload', 'write erase', 'no vlan'
+            ])
+            if re.search(r'(?<!no )\bshutdown\b', command):
+                is_risky = True
+            
+            if is_risky:
                 rollback_risky.append(command)
         
         if rollback_risky:

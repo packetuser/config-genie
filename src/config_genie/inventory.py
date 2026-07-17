@@ -84,7 +84,15 @@ def _validate_ip_address(ip_address: str) -> str:
         r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
     )
-    if not ip_pattern.match(ip_address) and not ip_address.replace('.', '').replace('-', '').isalnum():
+    # Allow fully-qualified hostnames (e.g. "switch1.example.com") as a
+    # fallback, since paramiko/SSH connections accept DNS names. A bare,
+    # single-label string (no dot) is too ambiguous to accept - it's more
+    # likely a typo/malformed IP than an intentional hostname.
+    hostname_pattern = re.compile(
+        r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+'
+        r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
+    )
+    if not ip_pattern.match(ip_address) and not hostname_pattern.match(ip_address):
         raise ValueError(f"Invalid IP address or hostname format: {ip_address}")
     return ip_address
 

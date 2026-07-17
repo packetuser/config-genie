@@ -1,5 +1,7 @@
 """Tests for connector module."""
 
+import itertools
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -26,7 +28,11 @@ class TestCiscoSSHConnector:
         mock_shell = Mock()
         mock_ssh_client.return_value = mock_client
         mock_client.invoke_shell.return_value = mock_shell
-        mock_shell.recv_ready.return_value = False
+        # Alternate recv_ready True/False so each read loop (buffer clear,
+        # each _send_command) receives one chunk and then stops, instead of
+        # looping forever on an always-True mock.
+        mock_shell.recv_ready.side_effect = itertools.cycle([True, False])
+        mock_shell.recv.return_value = b"test-switch#"
         
         connector = CiscoSSHConnector(
             device=self.device,
@@ -150,6 +156,9 @@ class TestConnectionManager:
         mock_connector = Mock()
         mock_connector_class.return_value = mock_connector
         mock_connector.connect.return_value = True
+        # Device is not yet in privileged mode, so ConnectionManager should
+        # invoke enter_enable_mode() to elevate privileges.
+        mock_connector.privileged = False
         
         self.manager.set_credentials("admin", "password", "enable_pass")
         self.manager.connect_device(self.device)

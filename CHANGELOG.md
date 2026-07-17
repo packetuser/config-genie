@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - NetBox device selection prompt now accepts device names (e.g. a switch literally named `300`) instead of only interpreting numeric input as a row number, which previously raised "Invalid selection" for numeric-looking device names
 - `inventory <path>` in interactive mode now replaces the currently loaded inventory instead of merging into it, fixing an "Error loading inventory: Duplicate device name" error when re-loading an inventory file (including the one auto-loaded at startup). A failed reload no longer wipes out the previously loaded inventory.
+- Command syntax validation now correctly warns about commands with leading whitespace (the check previously ran after the command was already stripped, so it could never trigger)
+- Device compatibility checks now flag stack-member commands like `switch 1 priority 15`, not just commands containing the literal word "stack"
+- Best-practices validation now correctly recommends saving the config after configuration changes (an empty-string entry in a `startswith()` check was matching every command, so the recommendation never fired)
+- Rollback feasibility checks no longer flag safe `no shutdown` commands as risky just because they contain the substring "shutdown"
+- Dry-run execution no longer fails with "Device not connected" — dry runs now simulate success without requiring an active device connection, as intended
+- `Device` IP/hostname validation now correctly rejects malformed values like `invalid-ip` instead of silently accepting anything alphanumeric with dots/dashes stripped, while still allowing fully-qualified hostnames (e.g. `switch1.example.com`)
+- Fixed test suite issues (incorrect mock setups causing false failures/hangs in SSH connector tests, and an outdated assertion in the CLI welcome-banner test) uncovered while auditing 11 previously-failing tests
 
 ## [0.3.0] - 2026-07-17
 

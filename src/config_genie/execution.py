@@ -159,6 +159,17 @@ class ExecutionManager:
         start_time = time.time()
         
         try:
+            # Dry run doesn't require a real connection - simulate execution
+            # before checking connection state.
+            if dry_run:
+                return ExecutionResult(
+                    device_name=device.name,
+                    status=ExecutionStatus.SUCCESS,
+                    commands=commands,
+                    output="DRY RUN - Commands would be executed",
+                    execution_time=time.time() - start_time
+                )
+            
             # Get connection
             connection = self.connection_manager.get_connection(device.name)
             if not connection or not connection.connected:
@@ -167,16 +178,6 @@ class ExecutionManager:
                     status=ExecutionStatus.FAILED,
                     commands=commands,
                     error="Device not connected"
-                )
-            
-            if dry_run:
-                # Simulate execution
-                return ExecutionResult(
-                    device_name=device.name,
-                    status=ExecutionStatus.SUCCESS,
-                    commands=commands,
-                    output="DRY RUN - Commands would be executed",
-                    execution_time=time.time() - start_time
                 )
             
             # Execute commands
