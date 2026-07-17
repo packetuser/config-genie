@@ -158,3 +158,76 @@ def test_inventory_duplicate_device():
     
     with pytest.raises(ValueError, match="already exists"):
         inventory.add_device(device2)
+
+def test_inventory_netbox_missing_credentials():
+    """Test that missing URL/token raises a clear error."""
+    inventory = Inventory()
+
+    with pytest.raises(ValueError, match="URL"):
+        inventory.load_netbox(url=None, token="abc")
+
+    with pytest.raises(ValueError, match="token"):
+        inventory.load_netbox(url="https://netbox.example.com", token=None)
+
+
+def test_inventory_netbox_loading(mocker):
+    """Test loading devices from a mocked NetBox API response."""
+    records = [
+        {
+            "name": "sw01",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "device_type": {"model": "2960X"},
+            "site": {"name": "HQ"},
+            "role": {"name": "access"},
+        },
+        {
+            # Device without a primary IP should be skipped
+            "name": "sw02",
+            "primary_ip4": None,
+        },
+    ]
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = records
+    mock_api_factory = mocker.patch(
+        "config_genie.inventory.pynetbox.api", return_value=mock_api
+    )
+
+    inventory = Inventory()
+    count = inventory.load_netbox(url="https://netbox.example.com", token="mytoken")
+
+    assert count == 1
+    device = inventory.get_device("sw01")
+    assert device.ip_address == "10.0.0.1"
+    assert device.model == "2960X"
+    assert device.site == "HQ"
+    assert device.role == "access"
+    assert inventory.get_device("sw02") is None
+
+    mock_api_factory.assert_called_once_with("https://netbox.example.com", token="mytoken")
+    mock_api.dcim.devices.filter.assert_called_once_with(status="active")
+
+
+def test_inventory_netbox_env_vars(mocker, monkeypatch):
+    """Test that NETBOX_URL and NETBOX_TOKEN env vars are used as fallback."""
+    monkeypatch.setenv("NETBOX_URL", "https://netbox.example.com")
+    monkeypatch.setenv("NETBOX_TOKEN", "envtoken")
+
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.return_value = []
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+
+    inventory = Inventory()
+    count = inventory.load_netbox()
+    assert count == 0
+
+
+def test_inventory_netbox_connection_error(mocker):
+    """Test that connection errors are wrapped in a friendly message."""
+    mock_api = mocker.Mock()
+    mock_api.dcim.devices.filter.side_effect = ConnectionError("boom")
+    mocker.patch("config_genie.inventory.pynetbox.api", return_value=mock_api)
+
+    inventory = Inventory()
+    with pytest.raises(ConnectionError, match="Failed to reach NetBox"):
+        inventory.load_netbox(url="https://netbox.example.com", token="mytoken")

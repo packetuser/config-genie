@@ -5,6 +5,13 @@ All notable changes to Config-Genie will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-17
+
+### Added
+- NetBox integration: `config-genie netbox` command to pull device inventory directly from a NetBox instance via the `pynetbox` SDK
+- `Inventory.load_netbox()` method supporting site/role/status filtering, `NETBOX_URL`/`NETBOX_TOKEN` env var fallback, and `--save` to persist fetched inventory as YAML
+- `pynetbox` added as a project dependency
+
 ## [0.2.2] - 2025-08-25
 
 ### Added

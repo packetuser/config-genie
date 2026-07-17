@@ -1,9 +1,11 @@
 """Inventory management for network devices."""
 
+import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
+import pynetbox
 import yaml
 
 
@@ -120,6 +122,95 @@ class Inventory:
             except ValueError as e:
                 raise ValueError(f"Error parsing line {line_num}: {e}")
     
+    def load_netbox(
+        self,
+        url: Optional[str] = None,
+        token: Optional[str] = None,
+        site: Optional[str] = None,
+        role: Optional[str] = None,
+        status: str = "active",
+        verify_ssl: bool = True,
+        timeout: int = 30,
+    ) -> int:
+        """Load devices from a NetBox instance via the pynetbox SDK.
+
+        Credentials/URL fall back to the NETBOX_URL and NETBOX_TOKEN
+        environment variables when not passed explicitly. Requires a
+        NetBox API token with read access to DCIM devices.
+
+        Returns the number of devices loaded.
+        """
+        netbox_url = url or os.environ.get("NETBOX_URL", "")
+        netbox_token = token or os.environ.get("NETBOX_TOKEN")
+
+        if not netbox_url:
+            raise ValueError(
+                "NetBox URL not provided (set --netbox-url or NETBOX_URL env var)"
+            )
+        if not netbox_token:
+            raise ValueError(
+                "NetBox token not provided (set --netbox-token or NETBOX_TOKEN env var)"
+            )
+
+        api = pynetbox.api(netbox_url, token=netbox_token)
+        api.http_session.verify = verify_ssl
+        api.http_session.timeout = timeout
+
+        filters: Dict[str, Any] = {"status": status}
+        if site:
+            filters["site"] = site
+        if role:
+            filters["role"] = role
+
+        loaded = 0
+        try:
+            for record in api.dcim.devices.filter(**filters):
+                device = self._device_from_netbox_record(record)
+                if device is None:
+                    continue
+                self.devices[device.name] = device
+                loaded += 1
+        except pynetbox.core.query.RequestError as e:
+            raise ConnectionError(f"Failed to reach NetBox at {netbox_url}: {e}")
+        except (ConnectionError, OSError) as e:
+            raise ConnectionError(f"Failed to reach NetBox at {netbox_url}: {e}")
+
+        return loaded
+
+    @staticmethod
+    def _device_from_netbox_record(record: Any) -> Optional["Device"]:
+        """Convert a pynetbox device record into a Device, skipping devices
+        without a usable primary IP address."""
+        data = dict(record)
+        name = data.get("name")
+        primary_ip = data.get("primary_ip4") or data.get("primary_ip")
+        if not name or not primary_ip or not primary_ip.get("address"):
+            return None
+
+        # NetBox returns addresses in CIDR form, e.g. "10.0.0.1/24"
+        ip_address = primary_ip["address"].split("/")[0]
+
+        device_type = data.get("device_type") or {}
+        model = device_type.get("model")
+
+        site_data = data.get("site") or {}
+        site = site_data.get("name")
+
+        # NetBox 3.6+ uses "role"; earlier versions use "device_role"
+        role_data = data.get("role") or data.get("device_role") or {}
+        role = role_data.get("name")
+
+        try:
+            return Device(
+                name=name,
+                ip_address=ip_address,
+                model=model,
+                site=site,
+                role=role,
+            )
+        except ValueError:
+            return None
+
     def add_device(self, device: Device) -> None:
         """Add a single device to inventory."""
         if device.name in self.devices:

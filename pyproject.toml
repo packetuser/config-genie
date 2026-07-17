@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "config-genie"
-version = "0.2.2"
+version = "0.3.0"
 description = "CLI-based network automation tool for Cisco devices"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ dependencies = [
     "rich>=13.0.0",
     "prompt-toolkit>=3.0.0",
     "pydantic>=2.0.0",
+    "pynetbox>=7.0.0",
 ]
 
 [project.optional-dependencies]

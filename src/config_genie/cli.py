@@ -169,6 +169,82 @@ def templates() -> None:
 
 
 @main.command()
+@click.option('--url', help='NetBox base URL (or set NETBOX_URL env var)')
+@click.option('--token', help='NetBox API token (or set NETBOX_TOKEN env var)')
+@click.option('--site', help='Filter devices by site slug/name')
+@click.option('--role', help='Filter devices by device role slug/name')
+@click.option('--status', default='active', show_default=True, help='Filter devices by status')
+@click.option('--no-verify-ssl', is_flag=True, help='Disable TLS certificate verification')
+@click.option('--save', 'save_path', help='Save fetched inventory to a YAML file')
+def netbox(
+    url: Optional[str],
+    token: Optional[str],
+    site: Optional[str],
+    role: Optional[str],
+    status: str,
+    no_verify_ssl: bool,
+    save_path: Optional[str],
+) -> None:
+    """Pull device inventory from a NetBox instance."""
+    from .inventory import Inventory
+
+    inventory = Inventory()
+
+    try:
+        console.print("[yellow]Connecting to NetBox...[/yellow]")
+        count = inventory.load_netbox(
+            url=url,
+            token=token,
+            site=site,
+            role=role,
+            status=status,
+            verify_ssl=not no_verify_ssl,
+        )
+    except (ValueError, ConnectionError) as e:
+        console.print(f"[red]Error:[/red] {str(e)}")
+        sys.exit(1)
+
+    console.print(f"[green]✓[/green] Loaded {count} devices from NetBox")
+
+    devices = inventory.get_all_devices()
+    table = Table(title="NetBox Device Inventory")
+    table.add_column("Name")
+    table.add_column("IP Address")
+    table.add_column("Model")
+    table.add_column("Site")
+    table.add_column("Role")
+
+    for device in devices:
+        table.add_row(
+            str(device.name),
+            str(device.ip_address),
+            str(device.model or "-"),
+            str(device.site or "-"),
+            str(device.role or "-")
+        )
+
+    console.print(table)
+
+    if save_path:
+        data = {
+            'devices': [
+                {
+                    'name': d.name,
+                    'ip_address': d.ip_address,
+                    'model': d.model,
+                    'site': d.site,
+                    'role': d.role,
+                }
+                for d in devices
+            ]
+        }
+        with open(save_path, 'w') as f:
+            import yaml
+            yaml.safe_dump(data, f, sort_keys=False)
+        console.print(f"[green]✓[/green] Saved inventory to {save_path}")
+
+
+@main.command()
 @click.argument('command')
 @click.option('--inventory', '-i', help='Path to inventory file')
 @click.option('--filter', '-f', help='Filter devices (e.g., model=2960X)')
