@@ -255,3 +255,62 @@ def test_load_inventory_keeps_previous_on_failure(mocker, tmp_path):
     # Previous good inventory should still be intact
     assert len(session.inventory.devices) == 1
     assert session.inventory.get_device("sw01") is not None
+
+
+def test_do_select_single_device_by_name(mocker, tmp_path):
+    """select <name> should select a single device, not fall through to
+    'Invalid selection' (previously only comma-separated names worked)."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: '256'\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: '400'\n"
+        "    ip_address: 10.0.0.2\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    session.do_select("256")
+    assert [d.name for d in session.selected_devices] == ["256"]
+
+
+def test_do_select_multiple_devices_by_name(mocker, tmp_path):
+    """select <name1>,<name2> should still select multiple devices."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: '256'\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: '400'\n"
+        "    ip_address: 10.0.0.2\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    session.do_select("256,400")
+    assert sorted(d.name for d in session.selected_devices) == ["256", "400"]
+
+
+def test_do_select_unknown_device_name_reports_invalid(mocker, tmp_path, capsys):
+    """A name that isn't a device and isn't a filter should still report an
+    error rather than silently selecting nothing."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    session.do_select("nonexistent")
+    captured = capsys.readouterr()
+    assert "Invalid selection" in captured.out
+    assert session.selected_devices == []

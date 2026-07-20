@@ -385,8 +385,8 @@ class InteractiveSession(cmd.Cmd):
             self.selected_devices = []
             print(cyan("Cleared device selection"))
         
-        elif ',' in arg:
-            # Select specific devices by name
+        elif ',' in arg or ('=' not in arg and self.inventory.get_device(arg.strip())):
+            # Select specific device(s) by name (comma-separated or single name)
             device_names = [name.strip() for name in arg.split(',')]
             self.selected_devices = []
             
