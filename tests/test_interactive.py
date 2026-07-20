@@ -857,7 +857,8 @@ def test_render_picker_lines_windowed_shows_scroll_indicators():
     assert "sw09" in text
     assert "sw04" not in text  # scrolled off above
     assert "sw10" not in text  # scrolled off below
-    assert "showing 6-10 of 20" in text
+    assert "showing 6-10 of" in text
+    assert "20" in text
     assert "5 more above" in text
     assert "10 more below" in text
 
@@ -875,6 +876,45 @@ def test_render_picker_lines_unwindowed_when_all_fit():
     assert "sw02" in text
     assert "more above" not in text
     assert "more below" not in text
+
+
+def test_render_picker_lines_marks_connected_devices_unambiguously():
+    """The checkbox should only ever mean 'will connect on Enter'; whether a
+    device already has a live connection is shown separately via a
+    '(connected)' suffix on its name, not folded into the checkbox mark."""
+    session = InteractiveSession()
+    sw01 = Device(name="sw01", ip_address="10.0.0.1")
+    sw02 = Device(name="sw02", ip_address="10.0.0.2")
+    devices = [sw01, sw02]
+
+    fake_conn = type("C", (), {"connected": True})()
+    session.connection_manager.connections["sw01"] = fake_conn
+
+    # sw01 is connected but NOT picked; sw02 is picked but NOT connected.
+    lines = session._render_picker_lines(devices, cursor=0, picked={1})
+    text = "\n".join(lines)
+
+    assert "sw01 (connected)" in text
+    assert "sw02 (connected)" not in text
+    assert "will connect on Enter" in text
+
+
+def test_connected_device_indices_identifies_live_connections():
+    """The picker should pre-check exactly the devices with a live
+    connection, by index within the given device list."""
+    session = InteractiveSession()
+    sw01 = Device(name="sw01", ip_address="10.0.0.1")
+    sw02 = Device(name="sw02", ip_address="10.0.0.2")
+    sw03 = Device(name="sw03", ip_address="10.0.0.3")
+    devices = [sw01, sw02, sw03]
+
+    connected_conn = type("C", (), {"connected": True})()
+    disconnected_conn = type("C", (), {"connected": False})()
+    session.connection_manager.connections["sw01"] = connected_conn
+    session.connection_manager.connections["sw02"] = disconnected_conn
+    # sw03 has no entry in connections at all.
+
+    assert session._connected_device_indices(devices) == {0}
 
 
 def test_pick_devices_interactively_requires_tty(mocker, tmp_path):

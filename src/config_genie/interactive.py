@@ -543,24 +543,26 @@ class InteractiveSession(cmd.Cmd):
     ) -> List[str]:
         """Build the text lines for one frame of the device picker, reusing the
         same table look ('inventory list') so both commands share one visual
-        language: same columns/order and cyan device names. The Pick and
-        Connected columns are merged into one "Pick" column (e.g. "[x] ✓")
-        since both are just per-device status markers. Only devices in the
-        [offset, offset + window_size) range are shown, so long device lists
-        scroll instead of overflowing the screen."""
+        language: same columns/order and cyan device names. The "Connect"
+        column shows a checkbox for whether the device will be connected to
+        when you press Enter ("[x]"/"[ ]"); already-connected devices start
+        pre-checked and are additionally marked "(connected)" after their
+        name, so it's unambiguous which mark means what. Only devices in
+        the [offset, offset + window_size) range are shown, so long device
+        lists scroll instead of overflowing the screen."""
         count = len(devices)
         if window_size is None or window_size >= count:
             window_size = count
             offset = 0
         visible = devices[offset:offset + window_size]
         
-        title = f"Pick devices ({len(picked)}/{count} selected)"
+        title = f"Pick devices to connect ({len(picked)}/{count} selected)"
         if window_size < count:
             title += f" — showing {offset + 1}-{offset + len(visible)} of {count}"
         
         table = Table(title=title)
         table.add_column("", width=1)  # cursor pointer
-        table.add_column("Pick")
+        table.add_column("Connect")
         table.add_column("Name", style="cyan")
         table.add_column("IP Address")
         table.add_column("Model")
@@ -570,14 +572,15 @@ class InteractiveSession(cmd.Cmd):
         for local_i, device in enumerate(visible):
             i = offset + local_i
             conn = self.connection_manager.get_connection(device.name)
-            connected = "✓" if conn and conn.connected else "-"
+            is_connected = bool(conn and conn.connected)
             pointer = "\u203a" if i == cursor else ""
             mark = escape("[x]") if i in picked else escape("[ ]")
+            name = str(device.name) + (" (connected)" if is_connected else "")
             
             table.add_row(
                 pointer,
-                f"{mark} {connected}",
-                str(device.name),
+                mark,
+                name,
                 str(device.ip_address),
                 str(device.model or "-"),
                 str(device.site or "-"),
@@ -600,10 +603,23 @@ class InteractiveSession(cmd.Cmd):
                 else f"({more_below} more below — scroll with \u2191/\u2193)"
             )
         lines.append("\u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel")
+        lines.append("[x] = will connect on Enter   (connected) = already has a live session")
         return lines
     
+    def _connected_device_indices(self, devices: List[Device]) -> Set[int]:
+        """Indices of devices (within the given list) that currently have a
+        live connection. Used to pre-check the picker's checkboxes so the
+        checkbox always means "will be connected on Enter", never something
+        ambiguous about current connection state."""
+        return {
+            i for i, device in enumerate(devices)
+            if (conn := self.connection_manager.get_connection(device.name)) and conn.connected
+        }
+    
     def _pick_devices_interactively(self) -> Optional[List[Device]]:
-        """Interactive device picker for 'connect pick'. Returns the chosen
+        """Interactive device picker for 'connect pick'. Already-connected
+        devices start pre-checked (so the checkbox always means "will be
+        connected on Enter", never something ambiguous). Returns the chosen
         devices, or None if the user cancelled or no terminal is available."""
         devices = self.inventory.get_all_devices()
         if not devices:
@@ -618,7 +634,11 @@ class InteractiveSession(cmd.Cmd):
         old_settings = termios.tcgetattr(fd)
         cursor = 0
         offset = 0
-        picked: Set[int] = set()
+        # Pre-check devices that already have a live connection, so the
+        # checkbox consistently means "will be connected when you press
+        # Enter" (rather than mixing in a separate, ambiguous meaning for
+        # already-connected devices).
+        picked: Set[int] = self._connected_device_indices(devices)
         prev_line_count = 0
         confirmed: Optional[bool] = None
         
@@ -627,11 +647,11 @@ class InteractiveSession(cmd.Cmd):
         
         def visible_rows() -> int:
             # Reserve lines for the table's title/header/separator/border
-            # (4 lines) plus the help line (1) and, once the list no longer
-            # fits, the scroll-indicator line (1); leave one spare line so
-            # the frame never exceeds the terminal height.
+            # (4 lines) plus the help line and legend line (2) and, once the
+            # list no longer fits, the scroll-indicator line (1); leave one
+            # spare line so the frame never exceeds the terminal height.
             term_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
-            return max(3, term_rows - 7)
+            return max(3, term_rows - 8)
         
         try:
             tty.setraw(fd)
@@ -969,7 +989,9 @@ class InteractiveSession(cmd.Cmd):
                 "• space - toggle device\n"
                 "• a / c - select all / clear\n"
                 "• Enter - confirm and connect\n"
-                "• q / Ctrl+C - cancel[/white]\n\n"
+                "• q / Ctrl+C - cancel\n"
+                "• [x] means the device will be connected when you press Enter;\n"
+                "  already-connected devices start pre-checked and show '(connected)'[/white]\n\n"
                 "[cyan]Available filters:[/cyan]\n"
                 "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"

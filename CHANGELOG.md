@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout/columns as `inventory list` (with a merged Pick/Connected column and a highlighted cursor row) so both commands share one visual language
+- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout as `inventory list` so both commands share one visual language
 - `connect add` — connects to devices without disconnecting existing sessions first (see below)
 - `connect pick` now scrolls automatically when the device list is taller than the terminal: the visible window follows the cursor, and a "N more above/below" indicator shows how many devices are scrolled off-screen
 - `connect <ip>` — connect by IP address (e.g. `connect 192.168.1.1`), matching an inventory device with that IP if one exists, or connecting directly if it isn't in the inventory. Works alongside device names in comma-separated lists (e.g. `connect sw01,192.168.1.5`). New `Inventory.get_device_by_ip()` and `is_ip_address()` helpers back this
 
 ### Changed
+- Clarified `connect pick`'s checkbox: it now always means "will connect on Enter" and nothing else. Previously the checkbox mark and the Connected status were combined into one column (e.g. `[x] ✓`), which was ambiguous about what the checkbox itself meant. Now already-connected devices start pre-checked and are labeled `(connected)` next to their name instead
 - Removed decorative emoji from README section headings, keeping plain text and simple symbols (e.g. `✓`/`✗`)
 - `connect` now disconnects any existing sessions before connecting by default, so you always end up connected to exactly the devices you just selected instead of accumulating connections across repeated `connect` calls. Use `connect add ...` (or bare `connect add` to retry devices that previously failed) to keep existing connections and add to them instead
 - `inventory list` and `connect pick` now share one visual language: `connect pick` renders the same table columns as `inventory list` (Name, IP Address, Model, Site, Role), with Pick and Connected merged into a single column (e.g. `[x] ✓`) since both are just per-device status markers
