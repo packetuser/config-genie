@@ -77,13 +77,19 @@ def parse_device_selection(selection: str, candidates: List[Any]) -> List[int]:
     return sorted(indices)
 
 
+_IPV4_PATTERN = re.compile(
+    r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
+    r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+)
+
+
+def is_ip_address(value: str) -> bool:
+    """Return True if value looks like a valid IPv4 address."""
+    return bool(_IPV4_PATTERN.match(value))
+
+
 def _validate_ip_address(ip_address: str) -> str:
     """Validate IP address format."""
-    # Basic IP address validation (IPv4)
-    ip_pattern = re.compile(
-        r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
-        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-    )
     # Allow fully-qualified hostnames (e.g. "switch1.example.com") as a
     # fallback, since paramiko/SSH connections accept DNS names. A bare,
     # single-label string (no dot) is too ambiguous to accept - it's more
@@ -92,7 +98,7 @@ def _validate_ip_address(ip_address: str) -> str:
         r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+'
         r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
     )
-    if not ip_pattern.match(ip_address) and not hostname_pattern.match(ip_address):
+    if not is_ip_address(ip_address) and not hostname_pattern.match(ip_address):
         raise ValueError(f"Invalid IP address or hostname format: {ip_address}")
     return ip_address
 
@@ -352,6 +358,13 @@ class Inventory:
     def get_device(self, name: str) -> Optional[Device]:
         """Get device by name."""
         return self.devices.get(name)
+    
+    def get_device_by_ip(self, ip_address: str) -> Optional[Device]:
+        """Get device by IP address (returns the first match, if any)."""
+        for device in self.devices.values():
+            if device.ip_address == ip_address:
+                return device
+        return None
     
     def get_all_devices(self) -> List[Device]:
         """Get all devices."""

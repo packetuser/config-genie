@@ -318,6 +318,64 @@ def test_resolve_devices_unknown_name_reports_invalid(mocker, tmp_path, capsys):
     assert devices is None
 
 
+def test_resolve_devices_by_ip_matches_inventory_device(mocker, tmp_path):
+    """Typing a device's IP address should resolve to that device, same as
+    typing its name."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 192.168.1.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    devices = session._resolve_devices_from_arg("192.168.1.1")
+    assert [d.name for d in devices] == ["sw01"]
+
+
+def test_resolve_devices_by_ip_not_in_inventory_connects_directly(mocker, tmp_path, capsys):
+    """An IP address that doesn't match any inventory device should still
+    resolve to a usable ad-hoc Device, so you can connect without having
+    to add it to the inventory first."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    devices = session._resolve_devices_from_arg("192.168.1.1")
+    captured = capsys.readouterr()
+    assert len(devices) == 1
+    assert devices[0].name == "192.168.1.1"
+    assert devices[0].ip_address == "192.168.1.1"
+    assert "not in inventory" in captured.out
+
+
+def test_resolve_devices_by_ip_list_mixed_with_names(mocker, tmp_path):
+    """A comma-separated list can mix known device names with bare IPs."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    devices = session._resolve_devices_from_arg("sw01,192.168.1.1")
+    assert sorted(d.name for d in devices) == ["192.168.1.1", "sw01"]
+
+
 def test_do_connect_with_names_selects_and_connects(mocker, tmp_path):
     """'connect <names>' should select the named devices and connect to
     them directly, without requiring a prior 'select' call."""

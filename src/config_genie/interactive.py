@@ -21,7 +21,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.markup import escape
 
-from .inventory import Inventory, Device
+from .inventory import Inventory, Device, is_ip_address
 from .connector import ConnectionManager
 
 
@@ -132,7 +132,7 @@ class InteractiveSession(cmd.Cmd):
                 "[bold white]Available Commands:[/bold white]\n\n"
                 "[white]inventory[/white] - Load (load/<path>) and list (list) device inventory\n"
                 "[white]netbox[/white] - Load device inventory from NetBox\n"
-                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, all/none, or 'pick' for an interactive picker; disconnects existing sessions first unless 'add' is used)\n"
+                "[white]connect[/white] - Connect to devices (by name, IP address, filter e.g. role=switch, all/none, or 'pick' for an interactive picker; disconnects existing sessions first unless 'add' is used)\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
@@ -391,7 +391,7 @@ class InteractiveSession(cmd.Cmd):
             console.print(f"[red]Error saving inventory: {str(e)}[/red]")
     
     def _resolve_devices_from_arg(self, arg: str) -> Optional[List[Device]]:
-        """Resolve a select/connect argument (all|none|names|filter) to a
+        """Resolve a select/connect argument (all|none|names|filter|IPs) to a
         device list. Returns None (after printing an error) if the argument
         couldn't be resolved."""
         if arg == "all":
@@ -403,13 +403,24 @@ class InteractiveSession(cmd.Cmd):
             print(cyan("Cleared device selection"))
             return []
         
-        if ',' in arg or ('=' not in arg and self.inventory.get_device(arg.strip())):
-            # Select specific device(s) by name (comma-separated or single name)
+        if ',' in arg or ('=' not in arg and (
+            self.inventory.get_device(arg.strip())
+            or is_ip_address(arg.strip())
+        )):
+            # Select specific device(s) by name, IP address, or a
+            # comma-separated mix of the two.
             device_names = [name.strip() for name in arg.split(',')]
             devices = []
             
             for name in device_names:
                 device = self.inventory.get_device(name)
+                if not device and is_ip_address(name):
+                    device = self.inventory.get_device_by_ip(name)
+                    if not device:
+                        # Not in inventory - connect directly by IP without
+                        # requiring it to be added to the inventory first.
+                        device = Device(name=name, ip_address=name)
+                        print(grey(f"{name} not in inventory - connecting directly by IP"))
                 if device:
                     devices.append(device)
                 else:
@@ -929,6 +940,7 @@ class InteractiveSession(cmd.Cmd):
                 "connect all                 # Disconnect existing sessions, then connect to all devices\n"
                 "connect pick                # Interactively pick devices (disconnects existing sessions first)\n"
                 "connect device1,device2     # Disconnect existing sessions, then connect to these devices\n"
+                "connect 192.168.1.1         # Connect by IP (looks up inventory, or connects directly if not found)\n"
                 "connect model=2960X         # Connect to devices matching model\n"
                 "connect site=100McCaul      # Connect to devices matching site\n"
                 "connect role=switch         # Connect to devices matching role\n"
@@ -949,7 +961,8 @@ class InteractiveSession(cmd.Cmd):
                 "so you always end up connected to exactly what you just selected.\n"
                 "Prefix with 'add' (e.g. 'connect add role=switch') to keep existing\n"
                 "connections and add to them instead. Already-connected devices are\n"
-                "always skipped rather than reconnected.\n"
+                "always skipped rather than reconnected. You can connect by device\n"
+                "name or IP address (a bare IP not in the inventory connects directly).\n"
                 "Will prompt for credentials if not already provided.[/dim]",
                 title="Context Help",
                 width=60

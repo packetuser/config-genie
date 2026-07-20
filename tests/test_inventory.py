@@ -331,3 +331,30 @@ def test_inventory_load_netbox_commits_all_fetched(mocker):
 
     assert count == 1
     assert inventory.get_device("sw01") is not None
+
+
+def test_get_device_by_ip_matches():
+    inventory = Inventory()
+    inventory.add_device(Device(name="sw01", ip_address="192.168.1.1"))
+    inventory.add_device(Device(name="sw02", ip_address="192.168.1.2"))
+
+    device = inventory.get_device_by_ip("192.168.1.2")
+    assert device is not None
+    assert device.name == "sw02"
+
+
+def test_get_device_by_ip_no_match_returns_none():
+    inventory = Inventory()
+    inventory.add_device(Device(name="sw01", ip_address="192.168.1.1"))
+
+    assert inventory.get_device_by_ip("10.0.0.99") is None
+
+
+def test_is_ip_address():
+    from config_genie.inventory import is_ip_address
+
+    assert is_ip_address("192.168.1.1") is True
+    assert is_ip_address("255.255.255.255") is True
+    assert is_ip_address("sw01") is False
+    assert is_ip_address("switch1.example.com") is False
+    assert is_ip_address("256.1.1.1") is False
