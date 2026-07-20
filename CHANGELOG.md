@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout/columns as `inventory list` (with an added Pick checkbox column and a highlighted cursor row) so both commands share one visual language
+- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout/columns as `inventory list` (with a merged Pick/Connected column and a highlighted cursor row) so both commands share one visual language
+- `connect add` — connects to devices without disconnecting existing sessions first (see below)
 
 ### Changed
+- `connect` now disconnects any existing sessions before connecting by default, so you always end up connected to exactly the devices you just selected instead of accumulating connections across repeated `connect` calls. Use `connect add ...` (or bare `connect add` to retry devices that previously failed) to keep existing connections and add to them instead
+- `inventory list` and `connect pick` now share one visual language: `connect pick` renders the same table columns as `inventory list` (Name, IP Address, Model, Site, Role), with Pick and Connected merged into a single column (e.g. `[x] ✓`) since both are just per-device status markers
 - Removed the separate `select` command. `connect` now does the job of both: `connect <names>`, `connect model=2960X`, `connect site=<site>`, `connect role=<role>`, and `connect all` select and connect in one step; `connect` with no argument still connects to the current selection (e.g. left over from a previous `connect` call)
 - Merged the `devices` command into `inventory`: `inventory list [filter]` replaces `devices [filter]`. `inventory load <path>` is now the explicit form for loading a file; the old bare `inventory <path>` shorthand still works for backward compatibility
 - `inventory list`'s "Status" column (which showed a stale "selected" label left over from the removed `select` command) is now a "Connected" column showing `✓` for devices with an active connection

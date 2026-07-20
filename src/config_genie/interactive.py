@@ -131,7 +131,7 @@ class InteractiveSession(cmd.Cmd):
                 "[bold white]Available Commands:[/bold white]\n\n"
                 "[white]inventory[/white] - Load (load/<path>) and list (list) device inventory\n"
                 "[white]netbox[/white] - Load device inventory from NetBox\n"
-                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, all/none, or 'pick' for an interactive picker)\n"
+                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, all/none, or 'pick' for an interactive picker; disconnects existing sessions first unless 'add' is used)\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
@@ -496,8 +496,9 @@ class InteractiveSession(cmd.Cmd):
     def _render_picker_lines(self, devices: List[Device], cursor: int, picked: Set[int]) -> List[str]:
         """Build the text lines for one frame of the device picker, reusing the
         same table look ('inventory list') so both commands share one visual
-        language: same columns/order, cyan device names, and a Connected
-        ✓/- column, plus a Pick checkbox column and a highlighted cursor row."""
+        language: same columns/order and cyan device names. The Pick and
+        Connected columns are merged into one "Pick" column (e.g. "[x] ✓")
+        since both are just per-device status markers."""
         table = Table(title=f"Pick devices ({len(picked)}/{len(devices)} selected)")
         table.add_column("", width=1)  # cursor pointer
         table.add_column("Pick")
@@ -506,23 +507,21 @@ class InteractiveSession(cmd.Cmd):
         table.add_column("Model")
         table.add_column("Site")
         table.add_column("Role")
-        table.add_column("Connected")
         
         for i, device in enumerate(devices):
             conn = self.connection_manager.get_connection(device.name)
-            status = "✓" if conn and conn.connected else "-"
+            connected = "✓" if conn and conn.connected else "-"
             pointer = "\u203a" if i == cursor else ""
             mark = escape("[x]") if i in picked else escape("[ ]")
             
             table.add_row(
                 pointer,
-                mark,
+                f"{mark} {connected}",
                 str(device.name),
                 str(device.ip_address),
                 str(device.model or "-"),
                 str(device.site or "-"),
                 str(device.role or "-"),
-                str(status),
                 style="reverse" if i == cursor else None,
             )
         
@@ -588,14 +587,22 @@ class InteractiveSession(cmd.Cmd):
         return [devices[i] for i in sorted(picked)]
     
     def do_connect(self, arg: str) -> None:
-        """Connect to devices. Usage: connect [device1,device2|filter|pick]
-        ('connect pick' opens an interactive picker: arrow keys to move,
-        space to toggle, 'a' to select all, 'c' to clear, Enter to confirm
-        and connect, 'q'/Ctrl+C to cancel. With no argument, connects to
-        the current selection; devices that are already connected are
-        skipped, so re-running 'connect' with no argument retries only the
-        ones that previously failed)"""
-        if arg.strip().lower() == 'pick':
+        """Connect to devices. Usage: connect [add] [device1,device2|filter|pick]
+        By default, 'connect' disconnects any existing sessions first, so
+        you always end up connected to exactly the newly selected devices.
+        Use 'connect add ...' to keep existing connections and add more on
+        top of them (already-connected devices are skipped either way, so
+        'connect add' with no argument retries only devices that previously
+        failed to connect). 'connect pick' opens an interactive picker:
+        arrow keys to move, space to toggle, 'a' to select all, 'c' to
+        clear, Enter to confirm and connect, 'q'/Ctrl+C to cancel."""
+        arg = arg.strip()
+        add_mode = False
+        if arg == 'add' or arg.lower().startswith('add '):
+            add_mode = True
+            arg = arg[len('add'):].strip()
+        
+        if arg.lower() == 'pick':
             devices = self._pick_devices_interactively()
             if devices is None:
                 print(grey("Selection cancelled."))
@@ -611,6 +618,13 @@ class InteractiveSession(cmd.Cmd):
         if not self.selected_devices:
             print(grey("No devices selected. Use 'connect <name|filter>', 'connect all', or 'connect pick'."))
             return
+        
+        if not add_mode and self.connection_manager.connections:
+            # Fresh connect (the default): drop existing sessions first so
+            # 'connect' always leaves exactly the newly selected devices
+            # connected, instead of accumulating connections across calls.
+            print(grey("Disconnecting existing sessions..."))
+            self.connection_manager.disconnect_all()
         
         # Skip devices that already have a live connection so re-running
         # 'connect' (e.g. after a partial failure) doesn't open duplicate,
@@ -853,13 +867,15 @@ class InteractiveSession(cmd.Cmd):
             console.print(Panel(
                 "[bold white]connect[/bold white] - [white]Connect to devices[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "[white]connect                     # Retry current selection (skips already-connected)\n"
-                "connect all                 # Connect to all devices\n"
-                "connect pick                # Interactively pick devices to connect\n"
-                "connect device1,device2     # Connect to specific devices\n"
+                "[white]connect                     # Disconnect existing sessions, then connect to current selection\n"
+                "connect all                 # Disconnect existing sessions, then connect to all devices\n"
+                "connect pick                # Interactively pick devices (disconnects existing sessions first)\n"
+                "connect device1,device2     # Disconnect existing sessions, then connect to these devices\n"
                 "connect model=2960X         # Connect to devices matching model\n"
                 "connect site=100McCaul      # Connect to devices matching site\n"
-                "connect role=switch         # Connect to devices matching role[/white]\n\n"
+                "connect role=switch         # Connect to devices matching role\n"
+                "connect add device3         # Keep existing sessions, add device3 on top\n"
+                "connect add                 # Keep existing sessions, retry any that failed to connect[/white]\n\n"
                 "[cyan]'connect pick' keys:[/cyan]\n"
                 "[white]• \u2191/\u2193 - move cursor\n"
                 "• space - toggle device\n"
@@ -871,8 +887,11 @@ class InteractiveSession(cmd.Cmd):
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
                 "• name=<pattern>[/white]\n\n"
-                "[dim]Note: Already-connected devices are skipped, so bare 'connect'\n"
-                "retries only devices that failed to connect last time.\n"
+                "[dim]Note: By default 'connect' disconnects any existing sessions first,\n"
+                "so you always end up connected to exactly what you just selected.\n"
+                "Prefix with 'add' (e.g. 'connect add role=switch') to keep existing\n"
+                "connections and add to them instead. Already-connected devices are\n"
+                "always skipped rather than reconnected.\n"
                 "Will prompt for credentials if not already provided.[/dim]",
                 title="Context Help",
                 width=60
@@ -1260,7 +1279,7 @@ class InteractiveSession(cmd.Cmd):
     def complete_connect(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         """Autocomplete for connect command."""
         # Base options
-        options = ['all', 'none', 'pick']
+        options = ['all', 'none', 'pick', 'add']
         
         # Add device names (ensure they're strings)
         device_names = [str(device.name) for device in self.inventory.get_all_devices()]

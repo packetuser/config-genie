@@ -509,10 +509,10 @@ def test_inventory_list_shows_connected_status(mocker, tmp_path, capsys):
     assert "selected" not in captured.out.lower()
 
 
-def test_do_connect_skips_already_connected_devices(mocker, tmp_path):
-    """Re-running 'connect' (e.g. after a partial failure) should not
-    reconnect devices that already have a live connection - it should only
-    retry the ones that aren't connected yet."""
+def test_do_connect_add_skips_already_connected_devices(mocker, tmp_path):
+    """'connect add' (e.g. after a partial failure) should not reconnect
+    devices that already have a live connection - it should only retry the
+    ones that aren't connected yet, and should not disconnect anything."""
     inventory_file = tmp_path / "devices.yaml"
     inventory_file.write_text(
         "devices:\n"
@@ -537,16 +537,21 @@ def test_do_connect_skips_already_connected_devices(mocker, tmp_path):
     session.connection_manager.connections["sw01"] = fake_conn
 
     mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+    mock_disconnect_all = mocker.patch.object(session.connection_manager, "disconnect_all")
 
-    session.do_connect("")
+    session.do_connect("add")
 
+    mock_disconnect_all.assert_not_called()
     mock_connect.assert_called_once()
     assert mock_connect.call_args[0][0].name == "sw02"
+    # The pre-existing connection should still be tracked, since 'add'
+    # doesn't disconnect anything.
+    assert "sw01" in session.connection_manager.connections
 
 
-def test_do_connect_all_already_connected_reports_status_without_reconnecting(mocker, tmp_path):
-    """If every selected device is already connected, 'connect' should just
-    report the status without calling connect_device at all."""
+def test_do_connect_add_all_already_connected_reports_status_without_reconnecting(mocker, tmp_path):
+    """If every selected device is already connected, 'connect add' should
+    just report the status without calling connect_device at all."""
     inventory_file = tmp_path / "devices.yaml"
     inventory_file.write_text(
         "devices:\n"
@@ -565,9 +570,70 @@ def test_do_connect_all_already_connected_reports_status_without_reconnecting(mo
 
     mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
 
-    session.do_connect("")
+    session.do_connect("add")
 
     mock_connect.assert_not_called()
+
+
+def test_do_connect_default_disconnects_existing_sessions_first(mocker, tmp_path):
+    """By default (no 'add'), 'connect' should disconnect any existing
+    sessions before connecting to the newly selected devices, so repeated
+    'connect' calls don't accumulate connections."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: sw02\n"
+        "    ip_address: 10.0.0.2\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+
+    fake_conn = mocker.Mock()
+    fake_conn.connected = True
+    session.connection_manager.connections["sw01"] = fake_conn
+
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    def fake_disconnect_all():
+        session.connection_manager.connections.clear()
+
+    mock_disconnect_all = mocker.patch.object(
+        session.connection_manager, "disconnect_all", side_effect=fake_disconnect_all
+    )
+
+    session.do_connect("sw02")
+
+    mock_disconnect_all.assert_called_once()
+    mock_connect.assert_called_once()
+    assert mock_connect.call_args[0][0].name == "sw02"
+
+
+def test_do_connect_default_no_existing_sessions_skips_disconnect(mocker, tmp_path):
+    """If nothing is currently connected, 'connect' shouldn't bother calling
+    disconnect_all (avoids a pointless 'Disconnecting...' message)."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+
+    mocker.patch.object(session.connection_manager, "connect_device")
+    mock_disconnect_all = mocker.patch.object(session.connection_manager, "disconnect_all")
+
+    session.do_connect("sw01")
+
+    mock_disconnect_all.assert_not_called()
 
 
 def _no_more_input():
