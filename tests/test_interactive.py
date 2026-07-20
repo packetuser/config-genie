@@ -568,3 +568,152 @@ def test_do_connect_all_already_connected_reports_status_without_reconnecting(mo
     session.do_connect("")
 
     mock_connect.assert_not_called()
+
+
+def _no_more_input():
+    raise AssertionError("read_next should not be called without an escape sequence")
+
+
+def test_picker_space_toggles_selection():
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        ' ', 0, set(), 3, _no_more_input
+    )
+    assert picked == {0}
+    assert action is None
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        ' ', 0, picked, 3, _no_more_input
+    )
+    assert picked == set()
+    assert action is None
+
+
+def test_picker_arrow_down_moves_cursor_and_clamps():
+    reads = iter(['[', 'B'])
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        '\x1b', 0, set(), 2, lambda: next(reads)
+    )
+    assert cursor == 1
+    assert action is None
+    # Already at last row: further Down should clamp, not wrap.
+    reads = iter(['[', 'B'])
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        '\x1b', 1, set(), 2, lambda: next(reads)
+    )
+    assert cursor == 1
+
+
+def test_picker_arrow_up_clamps_at_zero():
+    reads = iter(['[', 'A'])
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        '\x1b', 0, set(), 3, lambda: next(reads)
+    )
+    assert cursor == 0
+
+
+def test_picker_select_all_and_clear():
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        'a', 0, set(), 4, _no_more_input
+    )
+    assert picked == {0, 1, 2, 3}
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        'c', 0, picked, 4, _no_more_input
+    )
+    assert picked == set()
+
+
+def test_picker_enter_confirms():
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        '\r', 0, {1}, 3, _no_more_input
+    )
+    assert action is True
+    assert picked == {1}
+
+
+def test_picker_q_and_ctrl_c_cancel():
+    _, _, action = InteractiveSession._picker_handle_key('q', 0, set(), 3, _no_more_input)
+    assert action is False
+    _, _, action = InteractiveSession._picker_handle_key('\x03', 0, set(), 3, _no_more_input)
+    assert action is False
+
+
+def test_picker_bare_esc_cancels():
+    # ESC not followed by '[' (e.g. read_next returns something else) cancels.
+    reads = iter(['x'])
+    _, _, action = InteractiveSession._picker_handle_key(
+        '\x1b', 0, set(), 3, lambda: next(reads)
+    )
+    assert action is False
+
+
+def test_picker_no_devices_does_nothing():
+    cursor, picked, action = InteractiveSession._picker_handle_key(
+        ' ', 0, set(), 0, _no_more_input
+    )
+    assert action is None
+    assert picked == set()
+
+
+def test_pick_devices_interactively_requires_tty(mocker, tmp_path):
+    """Without a real terminal, the picker should bail out gracefully instead
+    of attempting to enter raw mode."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    mocker.patch("sys.stdin.isatty", return_value=False)
+    result = session._pick_devices_interactively()
+    assert result is None
+
+
+def test_do_connect_pick_uses_picker_result(mocker, tmp_path):
+    """'connect pick' should set selected_devices from the picker and then
+    proceed to connect exactly those devices."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: sw02\n"
+        "    ip_address: 10.0.0.2\n"
+    )
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    sw02 = session.inventory.get_device("sw02")
+    mocker.patch.object(session, "_pick_devices_interactively", return_value=[sw02])
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    session.do_connect("pick")
+
+    assert session.selected_devices == [sw02]
+    mock_connect.assert_called_once_with(sw02)
+
+
+def test_do_connect_pick_cancelled_leaves_selection_unchanged(mocker, tmp_path):
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    sw01 = session.inventory.get_device("sw01")
+    session.selected_devices = [sw01]
+
+    mocker.patch.object(session, "_pick_devices_interactively", return_value=None)
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    session.do_connect("pick")
+
+    assert session.selected_devices == [sw01]
+    mock_connect.assert_not_called()

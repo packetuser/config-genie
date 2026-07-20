@@ -4,7 +4,7 @@ import cmd
 import getpass
 import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable, Set, Tuple
 
 try:
     import termios
@@ -130,7 +130,7 @@ class InteractiveSession(cmd.Cmd):
                 "[bold white]Available Commands:[/bold white]\n\n"
                 "[white]inventory[/white] - Load (load/<path>) and list (list) device inventory\n"
                 "[white]netbox[/white] - Load device inventory from NetBox\n"
-                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, or all/none)\n"
+                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, all/none, or 'pick' for an interactive picker)\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
@@ -438,12 +438,152 @@ class InteractiveSession(cmd.Cmd):
         print(red(f"Invalid selection: {arg}"))
         return None
     
+    @staticmethod
+    def _picker_handle_key(
+        char: str,
+        cursor: int,
+        picked: Set[int],
+        count: int,
+        read_next: Callable[[], str],
+    ) -> Tuple[int, Set[int], Optional[bool]]:
+        """Process a single keypress for the interactive device picker.
+        Pure function (no terminal I/O) so it can be unit tested directly.
+
+        Returns (new_cursor, new_picked, action):
+          action is True to confirm (Enter), False to cancel (q/Ctrl+C),
+          or None to keep browsing. 'read_next' is called to read further
+          bytes of an escape sequence (arrow keys) and lets tests supply
+          canned input instead of a real terminal.
+        """
+        if count == 0:
+            return cursor, picked, None
+        
+        if char in ('\r', '\n'):
+            return cursor, picked, True
+        
+        if char in ('\x03', 'q', 'Q'):
+            return cursor, picked, False
+        
+        if char == ' ':
+            picked = set(picked)
+            if cursor in picked:
+                picked.discard(cursor)
+            else:
+                picked.add(cursor)
+            return cursor, picked, None
+        
+        if char in ('a', 'A'):
+            return cursor, set(range(count)), None
+        
+        if char in ('c', 'C'):
+            return cursor, set(), None
+        
+        if char == '\x1b':  # ESC or start of an arrow-key escape sequence
+            nxt = read_next()
+            if nxt == '[':
+                arrow = read_next()
+                if arrow == 'A':  # Up
+                    cursor = max(0, cursor - 1)
+                elif arrow == 'B':  # Down
+                    cursor = min(count - 1, cursor + 1)
+                return cursor, picked, None
+            # Bare Esc (no further bytes) cancels
+            return cursor, picked, False
+        
+        return cursor, picked, None
+    
+    def _render_picker_lines(self, devices: List[Device], cursor: int, picked: Set[int]) -> List[str]:
+        """Build the text lines for one frame of the device picker."""
+        lines = [
+            "Pick devices: \u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel",
+            "",
+        ]
+        for i, device in enumerate(devices):
+            mark = "[x]" if i in picked else "[ ]"
+            pointer = "\u203a" if i == cursor else " "
+            conn = self.connection_manager.get_connection(device.name)
+            connected = " (connected)" if conn and conn.connected else ""
+            line = (
+                f"{pointer} {mark} {str(device.name):<12} {str(device.ip_address):<16} "
+                f"{str(device.model or '-'):<10} {str(device.site or '-'):<12} "
+                f"{str(device.role or '-'):<10}{connected}"
+            )
+            if i == cursor:
+                line = f"\033[7m{line}\033[0m"  # reverse video highlight
+            lines.append(line)
+        lines.append("")
+        lines.append(f"Selected: {len(picked)}/{len(devices)}")
+        return lines
+    
+    def _pick_devices_interactively(self) -> Optional[List[Device]]:
+        """Interactive device picker for 'connect pick'. Returns the chosen
+        devices, or None if the user cancelled or no terminal is available."""
+        devices = self.inventory.get_all_devices()
+        if not devices:
+            console.print("[yellow]No devices in inventory. Load an inventory file first.[/yellow]")
+            return None
+        
+        if not sys.stdin.isatty() or not HAS_TERMIOS:
+            console.print("[yellow]'connect pick' needs an interactive terminal. Use 'connect <names>' instead.[/yellow]")
+            return None
+        
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        cursor = 0
+        picked: Set[int] = set()
+        prev_line_count = 0
+        confirmed: Optional[bool] = None
+        
+        def read_char() -> str:
+            return sys.stdin.read(1)
+        
+        try:
+            tty.setraw(fd)
+            sys.stdout.write('\033[?25l')  # hide cursor
+            
+            frame = self._render_picker_lines(devices, cursor, picked)
+            for line in frame:
+                sys.stdout.write(line + '\r\n')
+            sys.stdout.flush()
+            prev_line_count = len(frame)
+            
+            while confirmed is None:
+                char = read_char()
+                cursor, picked, confirmed = self._picker_handle_key(
+                    char, cursor, picked, len(devices), read_char
+                )
+                
+                frame = self._render_picker_lines(devices, cursor, picked)
+                sys.stdout.write(f'\033[{prev_line_count}A')  # move to top of previous frame
+                sys.stdout.write('\033[J')  # clear from cursor to end of screen
+                for line in frame:
+                    sys.stdout.write(line + '\r\n')
+                sys.stdout.flush()
+                prev_line_count = len(frame)
+        finally:
+            sys.stdout.write('\033[?25h')  # show cursor again
+            sys.stdout.flush()
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        
+        if not confirmed:
+            return None
+        return [devices[i] for i in sorted(picked)]
+    
     def do_connect(self, arg: str) -> None:
-        """Connect to devices. Usage: connect [device1,device2|filter]
-        (connects to the current selection if no argument is given; devices
-        that are already connected are skipped, so re-running 'connect'
-        with no argument retries only the ones that previously failed)"""
-        if arg:
+        """Connect to devices. Usage: connect [device1,device2|filter|pick]
+        ('connect pick' opens an interactive picker: arrow keys to move,
+        space to toggle, 'a' to select all, 'c' to clear, Enter to confirm
+        and connect, 'q'/Ctrl+C to cancel. With no argument, connects to
+        the current selection; devices that are already connected are
+        skipped, so re-running 'connect' with no argument retries only the
+        ones that previously failed)"""
+        if arg.strip().lower() == 'pick':
+            devices = self._pick_devices_interactively()
+            if devices is None:
+                print(grey("Selection cancelled."))
+                return
+            self.selected_devices = devices
+        elif arg:
             # Allow 'connect <names|filter>' to select and connect in one step
             devices = self._resolve_devices_from_arg(arg)
             if devices is None:
@@ -451,7 +591,7 @@ class InteractiveSession(cmd.Cmd):
             self.selected_devices = devices
         
         if not self.selected_devices:
-            print(grey("No devices selected. Use 'connect <name|filter>' or 'connect all'."))
+            print(grey("No devices selected. Use 'connect <name|filter>', 'connect all', or 'connect pick'."))
             return
         
         # Skip devices that already have a live connection so re-running
@@ -697,10 +837,17 @@ class InteractiveSession(cmd.Cmd):
                 "[cyan]Usage:[/cyan]\n"
                 "[white]connect                     # Retry current selection (skips already-connected)\n"
                 "connect all                 # Connect to all devices\n"
+                "connect pick                # Interactively pick devices to connect\n"
                 "connect device1,device2     # Connect to specific devices\n"
                 "connect model=2960X         # Connect to devices matching model\n"
                 "connect site=100McCaul      # Connect to devices matching site\n"
                 "connect role=switch         # Connect to devices matching role[/white]\n\n"
+                "[cyan]'connect pick' keys:[/cyan]\n"
+                "[white]• \u2191/\u2193 - move cursor\n"
+                "• space - toggle device\n"
+                "• a / c - select all / clear\n"
+                "• Enter - confirm and connect\n"
+                "• q / Ctrl+C - cancel[/white]\n\n"
                 "[cyan]Available filters:[/cyan]\n"
                 "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"
@@ -1095,7 +1242,7 @@ class InteractiveSession(cmd.Cmd):
     def complete_connect(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         """Autocomplete for connect command."""
         # Base options
-        options = ['all', 'none']
+        options = ['all', 'none', 'pick']
         
         # Add device names (ensure they're strings)
         device_names = [str(device.name) for device in self.inventory.get_all_devices()]
