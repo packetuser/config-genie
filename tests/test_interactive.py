@@ -1,6 +1,7 @@
 """Tests for the interactive session's NetBox integration."""
 
 import config_genie.inventory as inventory_module
+from config_genie.inventory import Device
 from config_genie.interactive import InteractiveSession
 
 
@@ -717,6 +718,73 @@ def test_picker_no_devices_does_nothing():
     )
     assert action is None
     assert picked == set()
+
+
+def test_picker_scroll_offset_no_scroll_needed():
+    """When every device fits in the window, offset stays at 0."""
+    assert InteractiveSession._picker_scroll_offset(cursor=3, count=5, window_size=5, offset=0) == 0
+    assert InteractiveSession._picker_scroll_offset(cursor=3, count=5, window_size=10, offset=0) == 0
+
+
+def test_picker_scroll_offset_follows_cursor_downward():
+    """Moving the cursor past the bottom of the window should scroll down
+    just enough to keep the cursor visible as the last row."""
+    offset = InteractiveSession._picker_scroll_offset(cursor=5, count=20, window_size=5, offset=0)
+    assert offset == 1  # window [1,6) keeps cursor 5 as the last visible row
+
+
+def test_picker_scroll_offset_follows_cursor_upward():
+    """Moving the cursor above the top of the window should scroll up to
+    make it the first visible row."""
+    offset = InteractiveSession._picker_scroll_offset(cursor=2, count=20, window_size=5, offset=10)
+    assert offset == 2
+
+
+def test_picker_scroll_offset_stays_put_when_cursor_already_visible():
+    """No unnecessary scrolling when the cursor is already inside the
+    current window."""
+    offset = InteractiveSession._picker_scroll_offset(cursor=4, count=20, window_size=5, offset=2)
+    assert offset == 2
+
+
+def test_picker_scroll_offset_clamped_to_valid_range():
+    """Offset should never go negative or push past the last full window."""
+    assert InteractiveSession._picker_scroll_offset(cursor=19, count=20, window_size=5, offset=0) == 15
+    assert InteractiveSession._picker_scroll_offset(cursor=0, count=20, window_size=5, offset=15) == 0
+
+
+def test_render_picker_lines_windowed_shows_scroll_indicators():
+    """When the device list is taller than the window, only the visible
+    slice should be rendered, and the frame should show how many devices
+    are scrolled off above/below."""
+    session = InteractiveSession()
+    devices = [Device(name=f"sw{i:02d}", ip_address="10.0.0.1") for i in range(20)]
+
+    lines = session._render_picker_lines(devices, cursor=9, picked={9}, offset=5, window_size=5)
+    text = "\n".join(lines)
+
+    assert "sw05" in text
+    assert "sw09" in text
+    assert "sw04" not in text  # scrolled off above
+    assert "sw10" not in text  # scrolled off below
+    assert "showing 6-10 of 20" in text
+    assert "5 more above" in text
+    assert "10 more below" in text
+
+
+def test_render_picker_lines_unwindowed_when_all_fit():
+    """When window_size is None (or >= device count) every device is shown
+    and no scroll indicator line is added."""
+    session = InteractiveSession()
+    devices = [Device(name="sw01", ip_address="10.0.0.1"), Device(name="sw02", ip_address="10.0.0.2")]
+
+    lines = session._render_picker_lines(devices, cursor=0, picked=set())
+    text = "\n".join(lines)
+
+    assert "sw01" in text
+    assert "sw02" in text
+    assert "more above" not in text
+    assert "more below" not in text
 
 
 def test_pick_devices_interactively_requires_tty(mocker, tmp_path):

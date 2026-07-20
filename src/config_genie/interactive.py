@@ -2,6 +2,7 @@
 
 import cmd
 import getpass
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Set, Tuple
@@ -493,13 +494,46 @@ class InteractiveSession(cmd.Cmd):
         
         return cursor, picked, None
     
-    def _render_picker_lines(self, devices: List[Device], cursor: int, picked: Set[int]) -> List[str]:
+    @staticmethod
+    def _picker_scroll_offset(cursor: int, count: int, window_size: int, offset: int) -> int:
+        """Compute the scroll offset (index of the first visible row) needed
+        to keep 'cursor' visible within a window of 'window_size' rows,
+        preserving the previous offset when the cursor is already visible.
+        Pure function so it can be unit tested without a real terminal."""
+        if window_size <= 0 or count <= window_size:
+            return 0
+        if cursor < offset:
+            offset = cursor
+        elif cursor >= offset + window_size:
+            offset = cursor - window_size + 1
+        return max(0, min(offset, count - window_size))
+    
+    def _render_picker_lines(
+        self,
+        devices: List[Device],
+        cursor: int,
+        picked: Set[int],
+        offset: int = 0,
+        window_size: Optional[int] = None,
+    ) -> List[str]:
         """Build the text lines for one frame of the device picker, reusing the
         same table look ('inventory list') so both commands share one visual
         language: same columns/order and cyan device names. The Pick and
         Connected columns are merged into one "Pick" column (e.g. "[x] ✓")
-        since both are just per-device status markers."""
-        table = Table(title=f"Pick devices ({len(picked)}/{len(devices)} selected)")
+        since both are just per-device status markers. Only devices in the
+        [offset, offset + window_size) range are shown, so long device lists
+        scroll instead of overflowing the screen."""
+        count = len(devices)
+        if window_size is None or window_size >= count:
+            window_size = count
+            offset = 0
+        visible = devices[offset:offset + window_size]
+        
+        title = f"Pick devices ({len(picked)}/{count} selected)"
+        if window_size < count:
+            title += f" — showing {offset + 1}-{offset + len(visible)} of {count}"
+        
+        table = Table(title=title)
         table.add_column("", width=1)  # cursor pointer
         table.add_column("Pick")
         table.add_column("Name", style="cyan")
@@ -508,7 +542,8 @@ class InteractiveSession(cmd.Cmd):
         table.add_column("Site")
         table.add_column("Role")
         
-        for i, device in enumerate(devices):
+        for local_i, device in enumerate(visible):
+            i = offset + local_i
             conn = self.connection_manager.get_connection(device.name)
             connected = "✓" if conn and conn.connected else "-"
             pointer = "\u203a" if i == cursor else ""
@@ -529,6 +564,16 @@ class InteractiveSession(cmd.Cmd):
             console.print(table)
         
         lines = capture.get().splitlines()
+        if window_size < count:
+            more_above = offset
+            more_below = count - (offset + len(visible))
+            lines.append(
+                f"({more_above} more above, {more_below} more below — scroll with \u2191/\u2193)"
+                if more_above and more_below
+                else f"({more_above} more above — scroll with \u2191/\u2193)"
+                if more_above
+                else f"({more_below} more below — scroll with \u2191/\u2193)"
+            )
         lines.append("\u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel")
         return lines
     
@@ -547,6 +592,7 @@ class InteractiveSession(cmd.Cmd):
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         cursor = 0
+        offset = 0
         picked: Set[int] = set()
         prev_line_count = 0
         confirmed: Optional[bool] = None
@@ -554,11 +600,21 @@ class InteractiveSession(cmd.Cmd):
         def read_char() -> str:
             return sys.stdin.read(1)
         
+        def visible_rows() -> int:
+            # Reserve lines for the table's title/header/separator/border
+            # (4 lines) plus the help line (1) and, once the list no longer
+            # fits, the scroll-indicator line (1); leave one spare line so
+            # the frame never exceeds the terminal height.
+            term_rows = shutil.get_terminal_size(fallback=(80, 24)).lines
+            return max(3, term_rows - 7)
+        
         try:
             tty.setraw(fd)
             sys.stdout.write('\033[?25l')  # hide cursor
             
-            frame = self._render_picker_lines(devices, cursor, picked)
+            window_size = visible_rows()
+            offset = self._picker_scroll_offset(cursor, len(devices), window_size, offset)
+            frame = self._render_picker_lines(devices, cursor, picked, offset, window_size)
             for line in frame:
                 sys.stdout.write(line + '\r\n')
             sys.stdout.flush()
@@ -570,7 +626,9 @@ class InteractiveSession(cmd.Cmd):
                     char, cursor, picked, len(devices), read_char
                 )
                 
-                frame = self._render_picker_lines(devices, cursor, picked)
+                window_size = visible_rows()
+                offset = self._picker_scroll_offset(cursor, len(devices), window_size, offset)
+                frame = self._render_picker_lines(devices, cursor, picked, offset, window_size)
                 sys.stdout.write(f'\033[{prev_line_count}A')  # move to top of previous frame
                 sys.stdout.write('\033[J')  # clear from cursor to end of screen
                 for line in frame:

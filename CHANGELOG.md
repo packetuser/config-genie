@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout/columns as `inventory list` (with a merged Pick/Connected column and a highlighted cursor row) so both commands share one visual language
 - `connect add` — connects to devices without disconnecting existing sessions first (see below)
+- `connect pick` now scrolls automatically when the device list is taller than the terminal: the visible window follows the cursor, and a "N more above/below" indicator shows how many devices are scrolled off-screen
 
 ### Changed
 - `connect` now disconnects any existing sessions before connecting by default, so you always end up connected to exactly the devices you just selected instead of accumulating connections across repeated `connect` calls. Use `connect add ...` (or bare `connect add` to retry devices that previously failed) to keep existing connections and add to them instead
