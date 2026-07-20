@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal
+- `connect pick` — an interactive device picker for the `connect` command: arrow keys move the cursor, space toggles the device under the cursor, `a`/`c` select all/clear, Enter confirms and connects to the picked devices, `q`/Ctrl+C cancels. Falls back with a message if run outside a real terminal. Uses the same table layout/columns as `inventory list` (with an added Pick checkbox column and a highlighted cursor row) so both commands share one visual language
 
 ### Changed
 - Removed the separate `select` command. `connect` now does the job of both: `connect <names>`, `connect model=2960X`, `connect site=<site>`, `connect role=<role>`, and `connect all` select and connect in one step; `connect` with no argument still connects to the current selection (e.g. left over from a previous `connect` call)

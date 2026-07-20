@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich.panel import Panel
+from rich.markup import escape
 
 from .inventory import Inventory, Device
 from .connector import ConnectionManager
@@ -493,26 +494,43 @@ class InteractiveSession(cmd.Cmd):
         return cursor, picked, None
     
     def _render_picker_lines(self, devices: List[Device], cursor: int, picked: Set[int]) -> List[str]:
-        """Build the text lines for one frame of the device picker."""
-        lines = [
-            "Pick devices: \u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel",
-            "",
-        ]
+        """Build the text lines for one frame of the device picker, reusing the
+        same table look ('inventory list') so both commands share one visual
+        language: same columns/order, cyan device names, and a Connected
+        ✓/- column, plus a Pick checkbox column and a highlighted cursor row."""
+        table = Table(title=f"Pick devices ({len(picked)}/{len(devices)} selected)")
+        table.add_column("", width=1)  # cursor pointer
+        table.add_column("Pick")
+        table.add_column("Name", style="cyan")
+        table.add_column("IP Address")
+        table.add_column("Model")
+        table.add_column("Site")
+        table.add_column("Role")
+        table.add_column("Connected")
+        
         for i, device in enumerate(devices):
-            mark = "[x]" if i in picked else "[ ]"
-            pointer = "\u203a" if i == cursor else " "
             conn = self.connection_manager.get_connection(device.name)
-            connected = " (connected)" if conn and conn.connected else ""
-            line = (
-                f"{pointer} {mark} {str(device.name):<12} {str(device.ip_address):<16} "
-                f"{str(device.model or '-'):<10} {str(device.site or '-'):<12} "
-                f"{str(device.role or '-'):<10}{connected}"
+            status = "✓" if conn and conn.connected else "-"
+            pointer = "\u203a" if i == cursor else ""
+            mark = escape("[x]") if i in picked else escape("[ ]")
+            
+            table.add_row(
+                pointer,
+                mark,
+                str(device.name),
+                str(device.ip_address),
+                str(device.model or "-"),
+                str(device.site or "-"),
+                str(device.role or "-"),
+                str(status),
+                style="reverse" if i == cursor else None,
             )
-            if i == cursor:
-                line = f"\033[7m{line}\033[0m"  # reverse video highlight
-            lines.append(line)
-        lines.append("")
-        lines.append(f"Selected: {len(picked)}/{len(devices)}")
+        
+        with console.capture() as capture:
+            console.print(table)
+        
+        lines = capture.get().splitlines()
+        lines.append("\u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel")
         return lines
     
     def _pick_devices_interactively(self) -> Optional[List[Device]]:
