@@ -429,7 +429,7 @@ class ConnectionManager:
                         print(f"Warning: Enable mode failed on {device.name}: {str(e)}")
                         connector.privileged = False
                 else:
-                    print(f"Device {device.name} already in privileged mode")
+                    print(f"{device.name} connected in privileged mode")
                 
                 self.connections[device.name] = connector
                 return connector
