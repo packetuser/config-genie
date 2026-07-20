@@ -162,8 +162,7 @@ Available interactive commands:
 - `inventory [path]` - Load inventory file
 - `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox; shows a numbered list of matching devices (default: roles containing "switch") and prompts which ones to import (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
 - `devices [filter]` - List and filter devices
-- `select <devices>` - Select devices for operations
-- `connect` - Connect to selected devices
+- `connect [devices|filter]` - Connect to devices by name, filter (`model=`, `site=`, `role=`), `all`, or the current selection if omitted
 - `execute <command>` - Execute commands on connected devices
 - `templates` - Manage configuration templates
 - `history` - Show session history

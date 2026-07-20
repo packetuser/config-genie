@@ -5,6 +5,15 @@ All notable changes to Config-Genie will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Removed the separate `select` command. `connect` now does the job of both: `connect <names>`, `connect model=2960X`, `connect site=<site>`, `connect role=<role>`, and `connect all` select and connect in one step; `connect` with no argument still connects to the current selection (e.g. left over from a previous `connect` call)
+
+### Fixed
+- Device selection now works for a single device name (e.g. `connect 256`); previously only comma-separated lists (`connect 256,400`, formerly `select 256,400`) were recognized and a lone name fell through to "Invalid selection"
+- `connect <names|filter>` now selects and connects to the specified devices directly, instead of silently ignoring its argument and connecting to whatever was left over in the selection from a previous call
+
 ## [0.4.0] - 2026-07-20
 
 ### Added

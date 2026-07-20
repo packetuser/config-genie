@@ -257,9 +257,10 @@ def test_load_inventory_keeps_previous_on_failure(mocker, tmp_path):
     assert session.inventory.get_device("sw01") is not None
 
 
-def test_do_select_single_device_by_name(mocker, tmp_path):
-    """select <name> should select a single device, not fall through to
-    'Invalid selection' (previously only comma-separated names worked)."""
+def test_resolve_devices_single_device_by_name(mocker, tmp_path):
+    """A bare device name should resolve to that single device, not fall
+    through to 'Invalid selection' (previously only comma-separated names
+    were recognized)."""
     inventory_file = tmp_path / "devices.yaml"
     inventory_file.write_text(
         "devices:\n"
@@ -273,12 +274,12 @@ def test_do_select_single_device_by_name(mocker, tmp_path):
     session = InteractiveSession()
     session._load_inventory(str(inventory_file))
 
-    session.do_select("256")
-    assert [d.name for d in session.selected_devices] == ["256"]
+    devices = session._resolve_devices_from_arg("256")
+    assert [d.name for d in devices] == ["256"]
 
 
-def test_do_select_multiple_devices_by_name(mocker, tmp_path):
-    """select <name1>,<name2> should still select multiple devices."""
+def test_resolve_devices_multiple_devices_by_name(mocker, tmp_path):
+    """Comma-separated names should still resolve to multiple devices."""
     inventory_file = tmp_path / "devices.yaml"
     inventory_file.write_text(
         "devices:\n"
@@ -292,13 +293,13 @@ def test_do_select_multiple_devices_by_name(mocker, tmp_path):
     session = InteractiveSession()
     session._load_inventory(str(inventory_file))
 
-    session.do_select("256,400")
-    assert sorted(d.name for d in session.selected_devices) == ["256", "400"]
+    devices = session._resolve_devices_from_arg("256,400")
+    assert sorted(d.name for d in devices) == ["256", "400"]
 
 
-def test_do_select_unknown_device_name_reports_invalid(mocker, tmp_path, capsys):
-    """A name that isn't a device and isn't a filter should still report an
-    error rather than silently selecting nothing."""
+def test_resolve_devices_unknown_name_reports_invalid(mocker, tmp_path, capsys):
+    """A name that isn't a device and isn't a filter should report an error
+    rather than silently resolving to nothing."""
     inventory_file = tmp_path / "devices.yaml"
     inventory_file.write_text(
         "devices:\n"
@@ -310,7 +311,87 @@ def test_do_select_unknown_device_name_reports_invalid(mocker, tmp_path, capsys)
     session = InteractiveSession()
     session._load_inventory(str(inventory_file))
 
-    session.do_select("nonexistent")
+    devices = session._resolve_devices_from_arg("nonexistent")
     captured = capsys.readouterr()
     assert "Invalid selection" in captured.out
+    assert devices is None
+
+
+def test_do_connect_with_names_selects_and_connects(mocker, tmp_path):
+    """'connect <names>' should select the named devices and connect to
+    them directly, without requiring a prior 'select' call."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: '561'\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: '663'\n"
+        "    ip_address: 10.0.0.2\n"
+        "  - name: '400'\n"
+        "    ip_address: 10.0.0.3\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    # Pretend a stale selection of a different device exists
+    session.selected_devices = [session.inventory.get_device("400")]
+
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    session.do_connect("561,663")
+
+    assert sorted(d.name for d in session.selected_devices) == ["561", "663"]
+    connected_names = sorted(call.args[0].name for call in mock_connect.call_args_list)
+    assert connected_names == ["561", "663"]
+
+
+def test_do_connect_without_arg_uses_existing_selection(mocker, tmp_path):
+    """'connect' with no argument should fall back to the current selection
+    (unchanged behavior)."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    session.selected_devices = [session.inventory.get_device("sw01")]
+
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    session.do_connect("")
+
+    mock_connect.assert_called_once()
+    assert mock_connect.call_args[0][0].name == "sw01"
+
+
+def test_do_connect_single_name_no_select_needed(mocker, tmp_path):
+    """A single device name should also work directly with 'connect'."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: '561'\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    # No prior select call at all
     assert session.selected_devices == []
+
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+    mock_connect = mocker.patch.object(session.connection_manager, "connect_device")
+
+    session.do_connect("561")
+
+    assert [d.name for d in session.selected_devices] == ["561"]
+    mock_connect.assert_called_once()
+    assert mock_connect.call_args[0][0].name == "561"

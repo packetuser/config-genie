@@ -131,8 +131,7 @@ class InteractiveSession(cmd.Cmd):
                 "[white]inventory[/white] - Load and manage device inventory\n"
                 "[white]netbox[/white] - Load device inventory from NetBox\n"
                 "[white]devices[/white] - List and filter devices\n"
-                "[white]select[/white] - Select devices for operations\n"
-                "[white]connect[/white] - Connect to selected devices\n"
+                "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, or all/none)\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
                 "[white]templates[/white] - Manage configuration templates\n"
@@ -367,63 +366,68 @@ class InteractiveSession(cmd.Cmd):
         
         console.print(table)
     
-    def do_select(self, arg: str) -> None:
-        """Select devices for operations. Usage: select [all|none|device1,device2|filter]"""
-        if not arg:
-            # Show current selection
-            if self.selected_devices:
-                print(cyan(f"Selected devices: {', '.join(str(d.name) for d in self.selected_devices)}"))
-            else:
-                print(grey("No devices selected."))
-            return
-        
+    def _resolve_devices_from_arg(self, arg: str) -> Optional[List[Device]]:
+        """Resolve a select/connect argument (all|none|names|filter) to a
+        device list. Returns None (after printing an error) if the argument
+        couldn't be resolved."""
         if arg == "all":
-            self.selected_devices = self.inventory.get_all_devices()
-            print(cyan(f"Selected all {len(self.selected_devices)} devices"))
+            devices = self.inventory.get_all_devices()
+            print(cyan(f"Selected all {len(devices)} devices"))
+            return devices
         
-        elif arg == "none":
-            self.selected_devices = []
+        if arg == "none":
             print(cyan("Cleared device selection"))
+            return []
         
-        elif ',' in arg or ('=' not in arg and self.inventory.get_device(arg.strip())):
+        if ',' in arg or ('=' not in arg and self.inventory.get_device(arg.strip())):
             # Select specific device(s) by name (comma-separated or single name)
             device_names = [name.strip() for name in arg.split(',')]
-            self.selected_devices = []
+            devices = []
             
             for name in device_names:
                 device = self.inventory.get_device(name)
                 if device:
-                    self.selected_devices.append(device)
+                    devices.append(device)
                 else:
                     print(grey(f"Device not found: {name}"))
             
-            print(cyan(f"Selected {len(self.selected_devices)} devices"))
+            print(cyan(f"Selected {len(devices)} devices"))
+            return devices
         
-        else:
-            # Try to parse as filter
-            if '=' in arg:
-                key, value = arg.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                if key == 'model':
-                    self.selected_devices = self.inventory.filter_devices(model=value)
-                elif key == 'site':
-                    self.selected_devices = self.inventory.filter_devices(site=value)
-                elif key == 'role':
-                    self.selected_devices = self.inventory.filter_devices(role=value)
-                else:
-                    print(red(f"Unknown filter: {arg}"))
-                    return
-                
-                print(cyan(f"Selected {len(self.selected_devices)} devices matching {arg}"))
+        # Try to parse as filter
+        if '=' in arg:
+            key, value = arg.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+            
+            if key == 'model':
+                devices = self.inventory.filter_devices(model=value)
+            elif key == 'site':
+                devices = self.inventory.filter_devices(site=value)
+            elif key == 'role':
+                devices = self.inventory.filter_devices(role=value)
             else:
-                print(red(f"Invalid selection: {arg}"))
+                print(red(f"Unknown filter: {arg}"))
+                return None
+            
+            print(cyan(f"Selected {len(devices)} devices matching {arg}"))
+            return devices
+        
+        print(red(f"Invalid selection: {arg}"))
+        return None
     
     def do_connect(self, arg: str) -> None:
-        """Connect to selected devices. Usage: connect"""
+        """Connect to devices. Usage: connect [device1,device2|filter]
+        (connects to the current selection if no argument is given)"""
+        if arg:
+            # Allow 'connect <names|filter>' to select and connect in one step
+            devices = self._resolve_devices_from_arg(arg)
+            if devices is None:
+                return
+            self.selected_devices = devices
+        
         if not self.selected_devices:
-            print(grey("No devices selected. Use 'select' command first."))
+            print(grey("No devices selected. Use 'connect <name|filter>' or 'connect all'."))
             return
         
         # Get credentials
@@ -644,34 +648,21 @@ class InteractiveSession(cmd.Cmd):
     def _show_context_help(self, command: str, args: str) -> None:
         """Show context-sensitive help for commands."""
         if command == "connect":
-            console.print(Panel.fit(
-                "[bold]connect[/bold] - Connect to selected devices\n\n"
-                "[cyan]Usage:[/cyan] connect\n\n"
-                "[yellow]Prerequisites:[/yellow]\n"
-                "• Devices must be selected first (use 'select' command)\n"
-                "• Will prompt for credentials if not already provided\n\n"
-                "[yellow]Examples:[/yellow]\n"
-                "connect\n\n"
-                "[dim]Note: This command connects to all currently selected devices[/dim]",
-                title="Context Help"
-            ))
-        
-        elif command == "select":
             console.print(Panel(
-                "[bold white]select[/bold white] - [white]Select devices for operations[/white]\n\n"
+                "[bold white]connect[/bold white] - [white]Connect to devices[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "[white]select                     # Show current selection\n"
-                "select all                 # Select all devices\n"
-                "select none                # Clear selection\n"
-                "select device1,device2     # Select specific devices\n"
-                "select model=2960X         # Select by model\n"
-                "select site=100McCaul      # Select by site\n"
-                "select role=switch         # Select by role[/white]\n\n"
+                "[white]connect                     # Connect to the current selection\n"
+                "connect all                 # Connect to all devices\n"
+                "connect device1,device2     # Connect to specific devices\n"
+                "connect model=2960X         # Connect to devices matching model\n"
+                "connect site=100McCaul      # Connect to devices matching site\n"
+                "connect role=switch         # Connect to devices matching role[/white]\n\n"
                 "[cyan]Available filters:[/cyan]\n"
                 "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
-                "• name=<pattern>[/white]",
+                "• name=<pattern>[/white]\n\n"
+                "[dim]Note: Will prompt for credentials if not already provided[/dim]",
                 title="Context Help",
                 width=60
             ))
@@ -1068,8 +1059,8 @@ class InteractiveSession(cmd.Cmd):
         options = ['model=', 'site=', 'role=', 'name=']
         return [option for option in options if option.startswith(text)]
     
-    def complete_select(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        """Autocomplete for select command."""
+    def complete_connect(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for connect command."""
         # Base options
         options = ['all', 'none']
         
