@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the separate `select` command. `connect` now does the job of both: `connect <names>`, `connect model=2960X`, `connect site=<site>`, `connect role=<role>`, and `connect all` select and connect in one step; `connect` with no argument still connects to the current selection (e.g. left over from a previous `connect` call)
 
 ### Fixed
+- Fixed misaligned output after pressing Enter at the `(config-genie)` prompt: raw terminal mode (used for arrow-key history/instant help) disables automatic carriage-return translation, so writing a bare `\n` moved to the next line without returning to column 0 — causing every following line (e.g. `Selected N devices`, the `Execute '...' on N devices? [y/n]` confirmation) to be indented by however many characters were typed on the prompt line. All raw-mode newline writes now emit `\r\n`.
 - Device selection now works for a single device name (e.g. `connect 256`); previously only comma-separated lists (`connect 256,400`, formerly `select 256,400`) were recognized and a lone name fell through to "Invalid selection"
 - `connect <names|filter>` now selects and connects to the specified devices directly, instead of silently ignoring its argument and connecting to whatever was left over in the selection from a previous call
 

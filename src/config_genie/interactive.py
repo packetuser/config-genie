@@ -847,7 +847,7 @@ class InteractiveSession(cmd.Cmd):
                 
                 # Handle special characters
                 if char == '\r' or char == '\n':  # Enter
-                    sys.stdout.write('\n')
+                    sys.stdout.write('\r\n')
                     sys.stdout.flush()
                     # Reset history index for next input
                     self.history_index = -1
@@ -863,12 +863,12 @@ class InteractiveSession(cmd.Cmd):
                         sys.stdout.flush()
                 
                 elif char == '\x03':  # Ctrl+C
-                    sys.stdout.write('\n')
+                    sys.stdout.write('\r\n')
                     sys.stdout.flush()
                     raise KeyboardInterrupt
                 
                 elif char == '\x04':  # Ctrl+D (EOF)
-                    sys.stdout.write('\n')
+                    sys.stdout.write('\r\n')
                     sys.stdout.flush()
                     raise EOFError
                 
@@ -907,7 +907,7 @@ class InteractiveSession(cmd.Cmd):
                             sys.stdout.flush()
                         else:
                             # Multiple completions - show them
-                            sys.stdout.write('\n')
+                            sys.stdout.write('\r\n')
                             # Show completions in columns
                             import shutil
                             term_width = shutil.get_terminal_size().columns
@@ -916,9 +916,9 @@ class InteractiveSession(cmd.Cmd):
                             
                             for i, comp in enumerate(completions):
                                 if i > 0 and i % cols == 0:
-                                    sys.stdout.write('\n')
+                                    sys.stdout.write('\r\n')
                                 sys.stdout.write(comp.ljust(max_width + 2))
-                            sys.stdout.write('\n')
+                            sys.stdout.write('\r\n')
                             
                             # Redraw prompt and current input
                             sys.stdout.write(self.prompt + ''.join(input_buffer))
