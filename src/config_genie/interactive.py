@@ -390,6 +390,20 @@ class InteractiveSession(cmd.Cmd):
         except OSError as e:
             console.print(f"[red]Error saving inventory: {str(e)}[/red]")
     
+    @staticmethod
+    def _merge_devices(existing: List[Device], new: List[Device]) -> List[Device]:
+        """Combine two device lists, keeping 'existing' devices first and
+        appending any 'new' ones not already present (matched by name), so
+        'connect add ...' accumulates onto the current selection instead of
+        replacing it."""
+        existing_names = {d.name for d in existing}
+        merged = list(existing)
+        for device in new:
+            if device.name not in existing_names:
+                merged.append(device)
+                existing_names.add(device.name)
+        return merged
+    
     def _resolve_devices_from_arg(self, arg: str) -> Optional[List[Device]]:
         """Resolve a select/connect argument (all|none|names|filter|IPs) to a
         device list. Returns None (after printing an error) if the argument
@@ -676,13 +690,17 @@ class InteractiveSession(cmd.Cmd):
             if devices is None:
                 print(grey("Selection cancelled."))
                 return
-            self.selected_devices = devices
+            self.selected_devices = self._merge_devices(self.selected_devices, devices) if add_mode else devices
         elif arg:
             # Allow 'connect <names|filter>' to select and connect in one step
             devices = self._resolve_devices_from_arg(arg)
             if devices is None:
                 return
-            self.selected_devices = devices
+            # In add mode, keep the previously selected/connected devices
+            # and add the new ones on top instead of replacing the
+            # selection - otherwise each 'connect add <device>' call would
+            # forget everything connected by earlier calls.
+            self.selected_devices = self._merge_devices(self.selected_devices, devices) if add_mode else devices
         
         if not self.selected_devices:
             print(grey("No devices selected. Use 'connect <name|filter>', 'connect all', or 'connect pick'."))

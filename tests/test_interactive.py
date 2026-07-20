@@ -568,6 +568,38 @@ def test_inventory_list_shows_connected_status(mocker, tmp_path, capsys):
     assert "selected" not in captured.out.lower()
 
 
+def test_do_connect_add_accumulates_selection_across_calls(mocker, tmp_path):
+    """Reproduces the debug4 bug: repeated 'connect add <ip>' calls should
+    accumulate onto the current selection (and stay connected to all of
+    them), not replace it with only the most recently added device."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text("devices: []\n")
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+    mocker.patch.object(session.connection_manager, "credentials", "fake-creds")
+
+    def fake_connect(device):
+        conn = mocker.Mock()
+        conn.connected = True
+        session.connection_manager.connections[device.name] = conn
+        return conn
+
+    mocker.patch.object(session.connection_manager, "connect_device", side_effect=fake_connect)
+
+    session.do_connect("10.1.100.50")
+    session.do_connect("add 10.1.100.57")
+    session.do_connect("add 10.1.100.24")
+
+    assert sorted(d.name for d in session.selected_devices) == [
+        "10.1.100.24", "10.1.100.50", "10.1.100.57",
+    ]
+    assert set(session.connection_manager.connections.keys()) == {
+        "10.1.100.24", "10.1.100.50", "10.1.100.57",
+    }
+
+
 def test_do_connect_add_skips_already_connected_devices(mocker, tmp_path):
     """'connect add' (e.g. after a partial failure) should not reconnect
     devices that already have a live connection - it should only retry the
