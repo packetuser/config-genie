@@ -226,11 +226,11 @@ class InteractiveSession(cmd.Cmd):
         table.add_column("Model")
         table.add_column("Site")
         table.add_column("Role")
-        table.add_column("Status")
+        table.add_column("Connected")
         
         for device in devices:
-            # Check if device is selected
-            status = "selected" if device in self.selected_devices else "-"
+            conn = self.connection_manager.get_connection(device.name)
+            status = "✓" if conn and conn.connected else "-"
             
             table.add_row(
                 str(device.name),

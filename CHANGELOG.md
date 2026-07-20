@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed the separate `select` command. `connect` now does the job of both: `connect <names>`, `connect model=2960X`, `connect site=<site>`, `connect role=<role>`, and `connect all` select and connect in one step; `connect` with no argument still connects to the current selection (e.g. left over from a previous `connect` call)
 - Merged the `devices` command into `inventory`: `inventory list [filter]` replaces `devices [filter]`. `inventory load <path>` is now the explicit form for loading a file; the old bare `inventory <path>` shorthand still works for backward compatibility
+- `inventory list`'s "Status" column (which showed a stale "selected" label left over from the removed `select` command) is now a "Connected" column showing `✓` for devices with an active connection
 
 ### Fixed
 - Fixed misaligned output after pressing Enter at the `(config-genie)` prompt: raw terminal mode (used for arrow-key history/instant help) disables automatic carriage-return translation, so writing a bare `\n` moved to the next line without returning to column 0 — causing every following line (e.g. `Selected N devices`, the `Execute '...' on N devices? [y/n]` confirmation) to be indented by however many characters were typed on the prompt line. All raw-mode newline writes now emit `\r\n`.

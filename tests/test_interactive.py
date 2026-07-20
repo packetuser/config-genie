@@ -481,3 +481,29 @@ def test_inventory_load_without_path_reports_usage(mocker, capsys):
     session.do_inventory("load")
     captured = capsys.readouterr()
     assert "Usage: inventory load" in captured.out
+
+
+def test_inventory_list_shows_connected_status(mocker, tmp_path, capsys):
+    """'inventory list' should show a Connected column reflecting actual
+    connection state, not the removed 'selected' concept."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+        "  - name: sw02\n"
+        "    ip_address: 10.0.0.2\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    fake_conn = mocker.Mock()
+    fake_conn.connected = True
+    session.connection_manager.connections["sw01"] = fake_conn
+
+    session.do_inventory("list")
+    captured = capsys.readouterr()
+    assert "Connected" in captured.out
+    assert "selected" not in captured.out.lower()
