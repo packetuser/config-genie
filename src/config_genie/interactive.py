@@ -19,7 +19,6 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich.panel import Panel
-from rich.markup import escape
 
 from .inventory import Inventory, Device, is_ip_address
 from .connector import ConnectionManager
@@ -544,11 +543,11 @@ class InteractiveSession(cmd.Cmd):
         """Build the text lines for one frame of the device picker, reusing the
         same table look ('inventory list') so both commands share one visual
         language: same columns/order and cyan device names. The "Connect"
-        column shows a checkbox for whether the device will be connected to
-        when you press Enter ("[x]"/"[ ]"); already-connected devices start
-        pre-checked and are additionally marked "(connected)" after their
-        name, so it's unambiguous which mark means what. Only devices in
-        the [offset, offset + window_size) range are shown, so long device
+        column uses a distinct symbol per state so it's unambiguous at a
+        glance: "✓" = already connected and staying that way, "+" = not yet
+        connected but will be on Enter, "✗" = currently connected but will be
+        disconnected (unchecked), blank = untouched. Only devices in the
+        [offset, offset + window_size) range are shown, so long device
         lists scroll instead of overflowing the screen."""
         count = len(devices)
         if window_size is None or window_size >= count:
@@ -573,14 +572,22 @@ class InteractiveSession(cmd.Cmd):
             i = offset + local_i
             conn = self.connection_manager.get_connection(device.name)
             is_connected = bool(conn and conn.connected)
+            is_picked = i in picked
             pointer = "\u203a" if i == cursor else ""
-            mark = escape("[x]") if i in picked else escape("[ ]")
-            name = str(device.name) + (" (connected)" if is_connected else "")
+            
+            if is_picked and is_connected:
+                mark = "[green]\u2713[/green]"  # staying connected
+            elif is_picked and not is_connected:
+                mark = "[cyan]+[/cyan]"  # newly connecting
+            elif not is_picked and is_connected:
+                mark = "[red]\u2717[/red]"  # will disconnect
+            else:
+                mark = ""
             
             table.add_row(
                 pointer,
                 mark,
-                name,
+                str(device.name),
                 str(device.ip_address),
                 str(device.model or "-"),
                 str(device.site or "-"),
@@ -603,7 +610,7 @@ class InteractiveSession(cmd.Cmd):
                 else f"({more_below} more below — scroll with \u2191/\u2193)"
             )
         lines.append("\u2191/\u2193 move  space toggle  a=all  c=clear  Enter=connect  q=cancel")
-        lines.append("[x] = will connect on Enter   (connected) = already has a live session")
+        lines.append("\u2713 = already connected   + = will newly connect   \u2717 = will disconnect")
         return lines
     
     def _connected_device_indices(self, devices: List[Device]) -> Set[int]:
@@ -990,8 +997,7 @@ class InteractiveSession(cmd.Cmd):
                 "• a / c - select all / clear\n"
                 "• Enter - confirm and connect\n"
                 "• q / Ctrl+C - cancel\n"
-                "• [x] means the device will be connected when you press Enter;\n"
-                "  already-connected devices start pre-checked and show '(connected)'[/white]\n\n"
+                "• \u2713 already connected   + will newly connect   \u2717 will disconnect[/white]\n\n"
                 "[cyan]Available filters:[/cyan]\n"
                 "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"

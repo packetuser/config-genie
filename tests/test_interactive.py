@@ -878,25 +878,30 @@ def test_render_picker_lines_unwindowed_when_all_fit():
     assert "more below" not in text
 
 
-def test_render_picker_lines_marks_connected_devices_unambiguously():
-    """The checkbox should only ever mean 'will connect on Enter'; whether a
-    device already has a live connection is shown separately via a
-    '(connected)' suffix on its name, not folded into the checkbox mark."""
+def test_render_picker_lines_uses_distinct_symbols_per_state():
+    """The Connect column should use a distinct symbol for each of the four
+    possible states, so 'already connected' and 'will newly connect' are
+    never conflated into the same mark (checkmark vs plus vs x)."""
     session = InteractiveSession()
-    sw01 = Device(name="sw01", ip_address="10.0.0.1")
-    sw02 = Device(name="sw02", ip_address="10.0.0.2")
-    devices = [sw01, sw02]
+    sw01 = Device(name="sw01", ip_address="10.0.0.1")  # connected, picked -> stays connected
+    sw02 = Device(name="sw02", ip_address="10.0.0.2")  # connected, unpicked -> will disconnect
+    sw03 = Device(name="sw03", ip_address="10.0.0.3")  # unconnected, picked -> newly connecting
+    sw04 = Device(name="sw04", ip_address="10.0.0.4")  # unconnected, unpicked -> untouched
+    devices = [sw01, sw02, sw03, sw04]
 
     fake_conn = type("C", (), {"connected": True})()
     session.connection_manager.connections["sw01"] = fake_conn
+    session.connection_manager.connections["sw02"] = fake_conn
 
-    # sw01 is connected but NOT picked; sw02 is picked but NOT connected.
-    lines = session._render_picker_lines(devices, cursor=0, picked={1})
+    lines = session._render_picker_lines(devices, cursor=0, picked={0, 2})
     text = "\n".join(lines)
 
-    assert "sw01 (connected)" in text
-    assert "sw02 (connected)" not in text
-    assert "will connect on Enter" in text
+    assert "\u2713" in text  # checkmark for sw01 (already connected, staying)
+    assert "+" in text  # plus for sw03 (newly connecting)
+    assert "\u2717" in text  # x for sw02 (will disconnect)
+    assert "already connected" in text
+    assert "will newly connect" in text
+    assert "will disconnect" in text
 
 
 def test_connected_device_indices_identifies_live_connections():
