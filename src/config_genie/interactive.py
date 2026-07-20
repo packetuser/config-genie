@@ -440,7 +440,9 @@ class InteractiveSession(cmd.Cmd):
     
     def do_connect(self, arg: str) -> None:
         """Connect to devices. Usage: connect [device1,device2|filter]
-        (connects to the current selection if no argument is given)"""
+        (connects to the current selection if no argument is given; devices
+        that are already connected are skipped, so re-running 'connect'
+        with no argument retries only the ones that previously failed)"""
         if arg:
             # Allow 'connect <names|filter>' to select and connect in one step
             devices = self._resolve_devices_from_arg(arg)
@@ -450,6 +452,26 @@ class InteractiveSession(cmd.Cmd):
         
         if not self.selected_devices:
             print(grey("No devices selected. Use 'connect <name|filter>' or 'connect all'."))
+            return
+        
+        # Skip devices that already have a live connection so re-running
+        # 'connect' (e.g. after a partial failure) doesn't open duplicate,
+        # leaked SSH sessions to devices that already succeeded.
+        already_connected = []
+        to_connect = []
+        for device in self.selected_devices:
+            conn = self.connection_manager.get_connection(device.name)
+            if conn and conn.connected:
+                already_connected.append(device)
+            else:
+                to_connect.append(device)
+        
+        if already_connected:
+            names = ', '.join(str(d.name) for d in already_connected)
+            print(grey(f"Already connected: {names}"))
+        
+        if not to_connect:
+            print(white(f"Connected to {len(already_connected)}/{len(self.selected_devices)} devices"))
             return
         
         # Get credentials
@@ -468,10 +490,10 @@ class InteractiveSession(cmd.Cmd):
             )
         
         # Connect to devices
-        print(cyan(f"Connecting to {len(self.selected_devices)} devices..."))
+        print(cyan(f"Connecting to {len(to_connect)} devices..."))
         
-        connected = 0
-        for device in self.selected_devices:
+        connected = len(already_connected)
+        for device in to_connect:
             try:
                 print(cyan(f"Connecting to {device.name}..."), end=" ")
                 self.connection_manager.connect_device(device)
@@ -673,7 +695,7 @@ class InteractiveSession(cmd.Cmd):
             console.print(Panel(
                 "[bold white]connect[/bold white] - [white]Connect to devices[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "[white]connect                     # Connect to the current selection\n"
+                "[white]connect                     # Retry current selection (skips already-connected)\n"
                 "connect all                 # Connect to all devices\n"
                 "connect device1,device2     # Connect to specific devices\n"
                 "connect model=2960X         # Connect to devices matching model\n"
@@ -684,7 +706,9 @@ class InteractiveSession(cmd.Cmd):
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
                 "• name=<pattern>[/white]\n\n"
-                "[dim]Note: Will prompt for credentials if not already provided[/dim]",
+                "[dim]Note: Already-connected devices are skipped, so bare 'connect'\n"
+                "retries only devices that failed to connect last time.\n"
+                "Will prompt for credentials if not already provided.[/dim]",
                 title="Context Help",
                 width=60
             ))
