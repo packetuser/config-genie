@@ -2,8 +2,7 @@
 
 CLI-based network automation tool for Cisco devices. Config-Genie allows network administrators to interactively connect to multiple devices, validate, preview, and apply configuration commands or snippets with safety and rollback mechanisms.
 
-## 🚀 Features
-
+## Features
 - **Interactive CLI** with step-by-step prompts and rich console output
 - **Multiple device inventory management** (YAML, text, and NetBox API support)
 - **Template/snippet library** with variable substitution and validation
@@ -13,15 +12,13 @@ CLI-based network automation tool for Cisco devices. Config-Genie allows network
 - **Session history and logging** for audit trails
 - **Multi-device operations** with automatic retry and error handling
 
-## 📋 Requirements
-
+## Requirements
 - Python 3.11+
 - Linux (Ubuntu 22.04 recommended)
 - Network access to Cisco devices
 - SSH access to target devices
 
-## 📦 Installation
-
+## Installation
 ```bash
 # Install required dependencies
 pip install pyyaml click rich paramiko
@@ -30,8 +27,7 @@ pip install pyyaml click rich paramiko
 pip install -e .
 ```
 
-## 🎯 Quick Start
-
+## Quick Start
 1. **Create an inventory file** (`devices.yml`):
 ```yaml
 devices:
@@ -62,8 +58,7 @@ config-genie templates
 config-genie -i devices.yml
 ```
 
-## 🌐 NetBox Integration
-
+## NetBox Integration
 Config-Genie can pull device inventory directly from a [NetBox](https://netboxlabs.com/) instance instead of maintaining static YAML/text files.
 
 **Setup:**
@@ -127,8 +122,7 @@ config-genie
 ```
 Alternatively, set `NETBOX_VERIFY_SSL=false` to always skip certificate verification without adding the flag each time.
 
-## 🖥️ Usage
-
+## Usage
 ### Command Line Interface
 
 ```bash
@@ -162,15 +156,14 @@ Available interactive commands:
 - `inventory` / `inventory load <path>` / `inventory <path>` - Show inventory status, or load an inventory file (`inventory <path>` is shorthand for `inventory load <path>`)
 - `inventory list [filter]` - List and filter loaded devices (`model=`, `site=`, `role=`, `name=`)
 - `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox; shows a numbered list of matching devices (default: roles containing "switch") and prompts which ones to import (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
-- `connect [add] [devices|filter|pick]` - Connect to devices by name, filter (`model=`, `site=`, `role=`), `all`, `pick`, or the current selection if omitted. By default, disconnects any existing sessions first so you always end up connected to exactly what you just selected; prefix with `add` (e.g. `connect add role=switch`, or bare `connect add` to retry failed devices) to keep existing connections and add to them instead — already-connected devices are always skipped rather than reconnected. `connect pick` opens an interactive picker with the same table layout as `inventory list` (Pick/Connected merged into one column): arrow keys to move, space to toggle a device, `a`/`c` to select all/clear, Enter to confirm and connect, `q`/Ctrl+C to cancel. The picker scrolls automatically to fit your terminal height when the device list is taller than the screen
+- `connect [add] [devices|IPs|filter|pick]` - Connect to devices by name, IP address (e.g. `connect 192.168.1.1`; looks up a matching inventory device or connects directly if not found), filter (`model=`, `site=`, `role=`), `all`, `pick`, or the current selection if omitted. By default, disconnects any existing sessions first so you always end up connected to exactly what you just selected; prefix with `add` (e.g. `connect add role=switch`, or bare `connect add` to retry failed devices) to keep existing connections and add to them instead — already-connected devices are always skipped rather than reconnected. `connect pick` opens an interactive picker with the same table layout as `inventory list` (Pick/Connected merged into one column): arrow keys to move, space to toggle a device, `a`/`c` to select all/clear, Enter to confirm and connect, `q`/Ctrl+C to cancel. The picker scrolls automatically to fit your terminal height when the device list is taller than the screen
 - `execute <command>` - Execute commands on connected devices
 - `templates` - Manage configuration templates
 - `history` - Show session history
 - `status` - Show current session status
 - `quit` - Exit the session
 
-## 📄 Inventory Formats
-
+## Inventory Formats
 ### YAML Format (`devices.yml`)
 ```yaml
 devices:
@@ -196,8 +189,7 @@ devices:
 192.168.1.4
 ```
 
-## 🔧 Templates
-
+## Templates
 Config-Genie includes built-in templates and supports custom templates with variable substitution:
 
 ```yaml
@@ -220,8 +212,7 @@ tags:
   - basic
 ```
 
-## 🛡️ Safety Features
-
+## Safety Features
 - **Command validation** against Cisco syntax rules
 - **Risky command detection** (reload, erase, shutdown, etc.)
 - **Multi-device safety checks** for bulk operations
@@ -229,8 +220,7 @@ tags:
 - **Rollback command generation** for configuration changes
 - **Interactive confirmations** for dangerous operations
 
-## 🧪 Testing
-
+## Testing
 ```bash
 # Run the demo
 python3 demo.py
@@ -247,8 +237,7 @@ print(f'Validation passed: {result.is_valid}')
 "
 ```
 
-## 📊 Logging and History
-
+## Logging and History
 Config-Genie automatically logs all operations:
 
 - **Connection attempts** and results
@@ -259,15 +248,13 @@ Config-Genie automatically logs all operations:
 
 Logs are stored in `~/.config/config-genie/logs/` with both file logging and session history.
 
-## 🚨 Safety Levels
-
+## Safety Levels
 - **LOW**: Informational warnings (logging, SNMP changes)
 - **MEDIUM**: Operations requiring attention (bulk changes, mixed models)
 - **HIGH**: Potentially disruptive operations (VLAN removal, route changes)
 - **CRITICAL**: Operations causing downtime (reload, erase, format)
 
-## 🎮 Development
-
+## Development
 ```bash
 # Install development dependencies
 pip install -e ".[dev,test]"
@@ -286,8 +273,7 @@ isort src/ tests/
 mypy src/
 ```
 
-## 🏗️ Architecture
-
+## Architecture
 Config-Genie follows a modular architecture:
 
 - **CLI Module**: Interactive prompts, command parsing, and help
@@ -299,32 +285,27 @@ Config-Genie follows a modular architecture:
 - **Logging Module**: Session history and audit logging
 - **Safety Module**: Risk assessment and confirmation prompts
 
-## 🔌 Supported Cisco Platforms
-
+## Supported Cisco Platforms
 - **IOS and IOS-XE** (primary focus)
 - **Catalyst 2960X, 9200, 9300, 9500** series switches
 - **Extensible** for additional platforms via plugin system
 
-## 🤝 Contributing
-
+## Contributing
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes with tests
 4. Run the test suite
 5. Submit a pull request
 
-## 📜 License
-
+## License
 MIT License - see LICENSE file for details.
 
-## 🆘 Support
-
+## Support
 For issues and support:
 1. Check the logs in `~/.config/config-genie/logs/`
 2. Run with `-v` for verbose output
 3. Use the demo script to verify functionality
 4. Check device connectivity and credentials
 
-## 📚 Examples
-
+## Examples
 See `demo.py` for comprehensive usage examples and `sample_inventory.yml` for inventory file format.
