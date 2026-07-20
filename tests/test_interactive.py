@@ -395,3 +395,89 @@ def test_do_connect_single_name_no_select_needed(mocker, tmp_path):
     assert [d.name for d in session.selected_devices] == ["561"]
     mock_connect.assert_called_once()
     assert mock_connect.call_args[0][0].name == "561"
+
+
+def test_inventory_load_subcommand(mocker, tmp_path):
+    """'inventory load <path>' should load an inventory file."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session.do_inventory(f"load {inventory_file}")
+
+    assert len(session.inventory.devices) == 1
+    assert session.inventory.get_device("sw01") is not None
+
+
+def test_inventory_bare_path_shorthand_still_loads(mocker, tmp_path):
+    """'inventory <path>' (no 'load' keyword) should still work for
+    backward compatibility."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session.do_inventory(str(inventory_file))
+
+    assert len(session.inventory.devices) == 1
+
+
+def test_inventory_list_subcommand_shows_devices(mocker, tmp_path, capsys):
+    """'inventory list' should display the loaded devices."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+        "    model: 2960X\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    session.do_inventory("list")
+    captured = capsys.readouterr()
+    assert "sw01" in captured.out
+
+
+def test_inventory_list_with_filter(mocker, tmp_path, capsys):
+    """'inventory list model=<x>' should filter devices by model."""
+    inventory_file = tmp_path / "devices.yaml"
+    inventory_file.write_text(
+        "devices:\n"
+        "  - name: sw01\n"
+        "    ip_address: 10.0.0.1\n"
+        "    model: 2960X\n"
+        "  - name: sw02\n"
+        "    ip_address: 10.0.0.2\n"
+        "    model: 3560\n"
+    )
+
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+    session._load_inventory(str(inventory_file))
+
+    session.do_inventory("list model=2960X")
+    captured = capsys.readouterr()
+    assert "sw01" in captured.out
+    assert "sw02" not in captured.out
+
+
+def test_inventory_load_without_path_reports_usage(mocker, capsys):
+    """'inventory load' with no path should print a usage error, not crash."""
+    mocker.patch("os.path.exists", return_value=False)
+    session = InteractiveSession()
+
+    session.do_inventory("load")
+    captured = capsys.readouterr()
+    assert "Usage: inventory load" in captured.out

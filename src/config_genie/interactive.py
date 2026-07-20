@@ -128,9 +128,8 @@ class InteractiveSession(cmd.Cmd):
         if not arg:
             console.print(Panel.fit(
                 "[bold white]Available Commands:[/bold white]\n\n"
-                "[white]inventory[/white] - Load and manage device inventory\n"
+                "[white]inventory[/white] - Load (load/<path>) and list (list) device inventory\n"
                 "[white]netbox[/white] - Load device inventory from NetBox\n"
-                "[white]devices[/white] - List and filter devices\n"
                 "[white]connect[/white] - Connect to devices (by name, filter e.g. role=switch, or all/none)\n"
                 "[white]execute[/white] - Execute commands on connected devices\n"
                 "[white]exit_config[/white] - Exit configuration mode on devices\n"
@@ -158,7 +157,13 @@ class InteractiveSession(cmd.Cmd):
             console.print("Type 'help' or '?' for available commands.")
     
     def do_inventory(self, arg: str) -> None:
-        """Load inventory file. Usage: inventory [path]"""
+        """Load and list device inventory.
+        Usage:
+          inventory                  # Show current inventory status
+          inventory load <path>      # Load inventory from file
+          inventory list [filter]    # List/filter loaded devices
+          inventory <path>           # Shorthand for 'inventory load <path>'
+        """
         if not arg:
             if self.inventory_path:
                 console.print(f"[green]Current inventory:[/green] {self.inventory_path}")
@@ -167,8 +172,76 @@ class InteractiveSession(cmd.Cmd):
                 path = input("Enter inventory file path: ").strip()
                 if path:
                     self._load_inventory(path)
+            return
+        
+        subcommand, _, rest = arg.partition(' ')
+        rest = rest.strip()
+        
+        if subcommand == 'load':
+            if not rest:
+                console.print("[red]Usage: inventory load <path>[/red]")
+                return
+            self._load_inventory(rest)
+        elif subcommand == 'list':
+            self._list_devices(rest)
         else:
+            # Backward-compatible shorthand: 'inventory <path>' loads directly
             self._load_inventory(arg)
+    
+    def _list_devices(self, arg: str) -> None:
+        """List and filter devices. Usage: [filter] where filter is
+        model=<name>, site=<name>, role=<name>, or name=<pattern>"""
+        devices = self.inventory.get_all_devices()
+        if not devices:
+            console.print("[yellow]No devices in inventory. Load an inventory file first.[/yellow]")
+            return
+        
+        # Apply filters if provided
+        if arg:
+            # Simple filter parsing (e.g., "model=2960X" or "site=HQ")
+            if '=' in arg:
+                key, value = arg.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'model':
+                    devices = self.inventory.filter_devices(model=value)
+                elif key == 'site':
+                    devices = self.inventory.filter_devices(site=value)
+                elif key == 'role':
+                    devices = self.inventory.filter_devices(role=value)
+                elif key == 'name':
+                    devices = self.inventory.filter_devices(name_pattern=value)
+                else:
+                    console.print(f"[red]Unknown filter key: {key}[/red]")
+                    return
+            else:
+                console.print(f"[red]Invalid filter: {arg}[/red]")
+                return
+        
+        # Display devices in table
+        table = Table(title=f"Devices ({len(devices)} found)")
+        table.add_column("Name", style="cyan")
+        table.add_column("IP Address")
+        table.add_column("Model")
+        table.add_column("Site")
+        table.add_column("Role")
+        table.add_column("Status")
+        
+        for device in devices:
+            # Check if device is selected
+            status = "selected" if device in self.selected_devices else "-"
+            
+            table.add_row(
+                str(device.name),
+                str(device.ip_address),
+                str(device.model or "-"),
+                str(device.site or "-"),
+                str(device.role or "-"),
+                str(status)
+            )
+        
+        console.print(table)
     
     def do_netbox(self, arg: str) -> None:
         """Load device inventory from a NetBox instance. Usage: netbox [site=<site>] [role=<role>] [status=<status>] [insecure]"""
@@ -314,57 +387,6 @@ class InteractiveSession(cmd.Cmd):
             console.print(f"[green]✓[/green] Saved inventory to {path}")
         except OSError as e:
             console.print(f"[red]Error saving inventory: {str(e)}[/red]")
-    
-    def do_devices(self, arg: str) -> None:
-        """List and filter devices. Usage: devices [filter]"""
-        devices = self.inventory.get_all_devices()
-        if not devices:
-            console.print("[yellow]No devices in inventory. Load an inventory file first.[/yellow]")
-            return
-        
-        # Apply filters if provided
-        if arg:
-            # Simple filter parsing (e.g., "model=2960X" or "site=HQ")
-            if '=' in arg:
-                key, value = arg.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                if key == 'model':
-                    devices = self.inventory.filter_devices(model=value)
-                elif key == 'site':
-                    devices = self.inventory.filter_devices(site=value)
-                elif key == 'role':
-                    devices = self.inventory.filter_devices(role=value)
-                elif key == 'name':
-                    devices = self.inventory.filter_devices(name_pattern=value)
-                else:
-                    console.print(f"[red]Unknown filter key: {key}[/red]")
-                    return
-        
-        # Display devices in table
-        table = Table(title=f"Devices ({len(devices)} found)")
-        table.add_column("Name", style="cyan")
-        table.add_column("IP Address")
-        table.add_column("Model")
-        table.add_column("Site")
-        table.add_column("Role")
-        table.add_column("Status")
-        
-        for device in devices:
-            # Check if device is selected
-            status = "selected" if device in self.selected_devices else "-"
-            
-            table.add_row(
-                str(device.name),
-                str(device.ip_address),
-                str(device.model or "-"),
-                str(device.site or "-"),
-                str(device.role or "-"),
-                str(status)
-            )
-        
-        console.print(table)
     
     def _resolve_devices_from_arg(self, arg: str) -> Optional[List[Device]]:
         """Resolve a select/connect argument (all|none|names|filter) to a
@@ -684,31 +706,24 @@ class InteractiveSession(cmd.Cmd):
                 title="Context Help"
             ))
         
-        elif command == "devices":
+        elif command == "inventory":
             console.print(Panel(
-                "[bold white]devices[/bold white] - [white]List and filter devices[/white]\n\n"
+                "[bold white]inventory[/bold white] - [white]Load and list device inventory[/white]\n\n"
                 "[cyan]Usage:[/cyan]\n"
-                "[white]devices                    # List all devices\n"
-                "devices model=2960X        # Filter by model\n"
-                "devices site=100McCaul     # Filter by site\n"
-                "devices role=switch        # Filter by role\n"
-                "devices name=sw-           # Filter by name pattern[/white]\n\n"
-                "[cyan]Available filters:[/cyan]\n"
+                "[white]inventory                  # Show current inventory status\n"
+                "inventory load <path>      # Load inventory from file\n"
+                "inventory <path>           # Shorthand for 'inventory load <path>'\n"
+                "inventory list             # List all devices\n"
+                "inventory list model=2960X # Filter by model\n"
+                "inventory list site=100McCaul  # Filter by site\n"
+                "inventory list role=switch # Filter by role\n"
+                "inventory list name=sw-    # Filter by name pattern[/white]\n\n"
+                "[cyan]Available list filters:[/cyan]\n"
                 "[white]• model=<model_name>\n"
                 "• site=<site_name>\n"
                 "• role=<role_name>\n"
-                "• name=<pattern>[/white]",
-                title="Context Help",
-                width=60
-            ))
-        
-        elif command == "inventory":
-            console.print(Panel(
-                "[bold white]inventory[/bold white] - [white]Load and manage device inventory[/white]\n\n"
-                "[cyan]Usage:[/cyan]\n"
-                "[white]inventory                  # Show current inventory status\n"
-                "inventory <path>           # Load inventory from file[/white]\n\n"
-                "[cyan]Supported formats:[/cyan]\n"
+                "• name=<pattern>[/white]\n\n"
+                "[cyan]Supported load formats:[/cyan]\n"
                 "[white]• YAML files (.yml, .yaml)\n"
                 "• Text files (.txt)[/white]\n\n"
                 "[cyan]Auto-load locations:[/cyan]\n"
@@ -1053,12 +1068,6 @@ class InteractiveSession(cmd.Cmd):
         
         return []
     
-    # Autocomplete methods
-    def complete_devices(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        """Autocomplete for devices command filters."""
-        options = ['model=', 'site=', 'role=', 'name=']
-        return [option for option in options if option.startswith(text)]
-    
     def complete_connect(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         """Autocomplete for connect command."""
         # Base options
@@ -1086,8 +1095,8 @@ class InteractiveSession(cmd.Cmd):
         
         return [option for option in options if option.startswith(text)]
     
-    def complete_inventory(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        """Autocomplete for inventory command with file paths."""
+    def _complete_file_path(self, text: str) -> List[str]:
+        """Complete a filesystem path for inventory files (.yml/.yaml/.txt)."""
         import os
         import glob
         
@@ -1113,8 +1122,30 @@ class InteractiveSession(cmd.Cmd):
                     relevant_files.append(match)
             
             return relevant_files
-        except:
+        except Exception:
             return []
+    
+    def complete_inventory(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        """Autocomplete for inventory command: subcommands (load/list), file
+        paths after 'load', and filter keys after 'list'."""
+        words = line.split()
+        # Determine how many completed words precede the one being typed
+        typed_so_far = words[:-1] if (words and not line.endswith(' ')) else words
+        
+        if not typed_so_far or typed_so_far == ['inventory']:
+            # Completing the subcommand itself: suggest load/list, or fall
+            # back to file paths for the 'inventory <path>' shorthand
+            subcommand_options = [opt for opt in ('load', 'list') if opt.startswith(text)]
+            return subcommand_options + self._complete_file_path(text)
+        
+        subcommand = typed_so_far[1] if len(typed_so_far) > 1 else ''
+        if subcommand == 'load':
+            return self._complete_file_path(text)
+        elif subcommand == 'list':
+            options = ['model=', 'site=', 'role=', 'name=']
+            return [option for option in options if option.startswith(text)]
+        
+        return []
     
     def complete_execute(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         """Autocomplete for execute command with common Cisco commands."""

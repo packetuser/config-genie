@@ -159,9 +159,9 @@ config-genie
 
 Available interactive commands:
 - `help` - Show available commands
-- `inventory [path]` - Load inventory file
+- `inventory` / `inventory load <path>` / `inventory <path>` - Show inventory status, or load an inventory file (`inventory <path>` is shorthand for `inventory load <path>`)
+- `inventory list [filter]` - List and filter loaded devices (`model=`, `site=`, `role=`, `name=`)
 - `netbox [site=<site>] [role=<role>] [status=<status>] [insecure]` - Load inventory from NetBox; shows a numbered list of matching devices (default: roles containing "switch") and prompts which ones to import (prompts for URL/token if not set via env vars; `insecure` ignores SSL errors)
-- `devices [filter]` - List and filter devices
 - `connect [devices|filter]` - Connect to devices by name, filter (`model=`, `site=`, `role=`), `all`, or the current selection if omitted
 - `execute <command>` - Execute commands on connected devices
 - `templates` - Manage configuration templates
