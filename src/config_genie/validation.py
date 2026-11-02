@@ -136,6 +136,10 @@ class CiscoCommandValidator:
             
             # Check for exec commands in config context
             first_word = command.split()[0].lower()
+            if first_word in self.config_contexts and len(command.split()) == 1:
+                result.add_error(
+                    f"Line {i+1}: Incomplete command: '{command}' requires an argument"
+                )
             if first_word in self.exec_only_commands:
                 result.add_warning(f"Line {i+1}: '{first_word}' is typically an exec command, not config")
     

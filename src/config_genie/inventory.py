@@ -146,17 +146,40 @@ class Inventory:
         if not isinstance(devices_data, list):
             raise ValueError("'devices' must be a list")
         
-        for device_data in devices_data:
-            device = Device(
-                name=device_data['name'],
-                ip_address=device_data['ip_address'],
-                model=device_data.get('model'),
-                site=device_data.get('site'),
-                role=device_data.get('role')
-            )
-            if device.name in self.devices:
+        loaded_devices: Dict[str, Device] = {}
+        for index, device_data in enumerate(devices_data, 1):
+            if not isinstance(device_data, dict):
+                raise ValueError(f"Device entry {index} must be a mapping")
+
+            for field in ("name", "ip_address"):
+                if field not in device_data:
+                    raise ValueError(
+                        f"Device entry {index} is missing required field '{field}'"
+                    )
+
+            name = device_data["name"]
+            ip_address = device_data["ip_address"]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"Device entry {index} has an invalid 'name'")
+            if not isinstance(ip_address, str) or not ip_address.strip():
+                raise ValueError(f"Device entry {index} has an invalid 'ip_address'")
+
+            try:
+                device = Device(
+                    name=name,
+                    ip_address=ip_address,
+                    model=device_data.get("model"),
+                    site=device_data.get("site"),
+                    role=device_data.get("role"),
+                )
+            except ValueError as e:
+                raise ValueError(f"Invalid device entry {index}: {e}") from e
+
+            if device.name in self.devices or device.name in loaded_devices:
                 raise ValueError(f"Duplicate device name: {device.name}")
-            self.devices[device.name] = device
+            loaded_devices[device.name] = device
+
+        self.devices.update(loaded_devices)
     
     def load_txt(self, file_path: Union[str, Path]) -> None:
         """Load devices from text file (one IP per line or IP,name format)."""
@@ -181,9 +204,6 @@ class Inventory:
                 # IP,name or IP,name,model,site,role format
                 ip_address = parts[0]
                 name = parts[1]
-                model = parts[2] if len(parts) > 2 and parts[2] else None
-                site = parts[3] if len(parts) > 3 and parts[3] else None
-                role = parts[4] if len(parts) > 4 and parts[4] else None
             else:
                 continue
             

@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `inventory list`'s "Status" column (which showed a stale "selected" label left over from the removed `select` command) is now a "Connected" column showing `✓` for devices with an active connection
 
 ### Fixed
+- YAML inventory loading now reports missing or invalid required fields with the device-entry number and validates all entries before changing the current inventory
+- SSH connection setup no longer masks failures during the privilege check as an unprivileged connection; cleanup handlers no longer swallow process-interrupt exceptions
+- Execution keeps `exit`/`quit` in the configuration sequence when they follow configuration commands, while standalone uses remain exec commands
+- Command validation now rejects bare configuration-context commands such as `interface` when the required argument is missing
+- Session duration statistics now handle malformed timestamps and mixed timezone-aware/naive timestamps without an unhandled exception
 - `connect add <device>` no longer discards the previously selected/connected devices - it now accumulates onto the current selection instead of replacing it with only the most recently added device. Previously, connecting to several devices one at a time with repeated `connect add` calls left everything connected, but `execute` would silently only run on the last device added, since `self.selected_devices` had been overwritten each time
 - `connect` (with no argument, or re-running `connect <names>`) now skips devices that already have a live connection instead of blindly reconnecting all of them, which previously opened a duplicate, leaked SSH session for every already-connected device on each retry. This also makes bare `connect` actually useful: it now retries only devices that failed to connect last time
 - Fixed misaligned output after pressing Enter at the `(config-genie)` prompt: raw terminal mode (used for arrow-key history/instant help) disables automatic carriage-return translation, so writing a bare `\n` moved to the next line without returning to column 0 — causing every following line (e.g. `Selected N devices`, the `Execute '...' on N devices? [y/n]` confirmation) to be indented by however many characters were typed on the prompt line. All raw-mode newline writes now emit `\r\n`.

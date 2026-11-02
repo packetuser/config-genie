@@ -207,6 +207,19 @@ class TestSessionLogger:
             assert stats['commands_executed'] == 3  # 2 + 1
             
             logger.close()
+
+    def test_session_statistics_handles_mixed_timestamp_timezones(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger = SessionLogger(log_dir=temp_dir)
+            logger.session_history = [
+                {"timestamp": "2026-01-01T00:00:00", "event_type": "test"},
+                {"timestamp": "2026-01-02T00:00:00+00:00", "event_type": "test"},
+            ]
+
+            stats = logger.get_session_statistics()
+
+            assert stats["session_duration"] is None
+            logger.close()
     
     def test_history_persistence(self):
         """Test that history is saved and loaded correctly."""

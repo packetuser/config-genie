@@ -67,6 +67,39 @@ def test_inventory_yaml_loading():
         Path(yaml_file).unlink()
 
 
+@pytest.mark.parametrize(
+    ("device_data", "missing_field"),
+    [
+        ({"ip_address": "192.168.1.1"}, "name"),
+        ({"name": "switch01"}, "ip_address"),
+    ],
+)
+def test_inventory_yaml_missing_required_field_is_contextual_and_atomic(
+    device_data, missing_field
+):
+    inventory_data = {
+        "devices": [
+            {"name": "switch00", "ip_address": "192.168.1.1"},
+            device_data,
+        ]
+    }
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+        yaml.dump(inventory_data, f)
+        yaml_file = f.name
+
+    try:
+        inventory = Inventory()
+        with pytest.raises(
+            ValueError,
+            match=rf"Device entry 2 is missing required field '{missing_field}'",
+        ):
+            inventory.load_yaml(yaml_file)
+        assert inventory.devices == {}
+    finally:
+        Path(yaml_file).unlink()
+
+
 def test_inventory_txt_loading():
     """Test loading devices from text file."""
     txt_content = """# This is a comment

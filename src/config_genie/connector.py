@@ -75,24 +75,15 @@ class CiscoSSHConnector:
             self._send_command("terminal length 0")
             self._send_command("terminal width 0")
             
-            # Check if we're already in privileged mode by checking if prompt ends with #
-            # We can see from previous commands if the prompt was already #
-            try:
-                # Send a simple show command to see current privilege
-                output = self._send_command("show privilege")
-                if "privilege level 15" in output.lower() or "current privilege level is 15" in output.lower():
-                    self._debug_print("Already in privileged mode (level 15)", "SUCCESS")
-                    self.privileged = True
-                elif "#" in output:  # Fallback check for # in output
-                    self._debug_print("Already in privileged mode (# detected)", "SUCCESS")
-                    self.privileged = True
-                else:
-                    self._debug_print("Not in privileged mode", "INFO")
-                    self.privileged = False
-            except:
-                # If privilege check fails, try to determine from previous command responses
-                # Since we just ran terminal commands successfully, check if device shows privilege
-                self._debug_print("Privilege check failed, assuming not privileged", "WARN")
+            output = self._send_command("show privilege")
+            if "privilege level 15" in output.lower() or "current privilege level is 15" in output.lower():
+                self._debug_print("Already in privileged mode (level 15)", "SUCCESS")
+                self.privileged = True
+            elif "#" in output:
+                self._debug_print("Already in privileged mode (# detected)", "SUCCESS")
+                self.privileged = True
+            else:
+                self._debug_print("Not in privileged mode", "INFO")
                 self.privileged = False
             
             self.connected = True
@@ -373,14 +364,14 @@ class CiscoSSHConnector:
         if self.shell:
             try:
                 self.shell.close()
-            except:
+            except Exception:
                 pass
             self.shell = None
         
         if self.ssh_client:
             try:
                 self.ssh_client.close()
-            except:
+            except Exception:
                 pass
             self.ssh_client = None
 

@@ -179,6 +179,8 @@ devices:
     role: distribution
 ```
 
+Each device entry must include a non-empty `name` and `ip_address`. YAML entries are validated before being added to the inventory, and errors identify the entry number.
+
 ### Text Format (`devices.txt`)
 ```
 # IP,Name,Model,Site,Role
@@ -214,6 +216,7 @@ tags:
 
 ## Safety Features
 - **Command validation** against Cisco syntax rules
+- **Incomplete-command detection** for configuration contexts (for example, `interface` without an interface name)
 - **Risky command detection** (reload, erase, shutdown, etc.)
 - **Multi-device safety checks** for bulk operations
 - **Device compatibility validation** based on model

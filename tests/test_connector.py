@@ -64,6 +64,29 @@ class TestCiscoSSHConnector:
             connector.connect()
         
         assert connector.connected is False
+
+    @patch("config_genie.connector.time.sleep")
+    @patch("config_genie.connector.CiscoSSHConnector._send_command")
+    @patch("config_genie.connector.paramiko.SSHClient")
+    def test_privilege_check_failure_fails_connection(
+        self, mock_ssh_client, mock_send_command, _mock_sleep
+    ):
+        mock_client = Mock()
+        mock_ssh_client.return_value = mock_client
+        mock_client.invoke_shell.return_value.recv_ready.return_value = False
+        mock_send_command.side_effect = ["", "", TimeoutError("prompt timeout")]
+
+        connector = CiscoSSHConnector(
+            device=self.device,
+            username="admin",
+            password="password",
+        )
+
+        with pytest.raises(ConnectionError, match="prompt timeout"):
+            connector.connect()
+
+        assert connector.connected is False
+        mock_client.close.assert_called_once()
     
     def test_send_command_not_connected(self):
         """Test sending command when not connected."""

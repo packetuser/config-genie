@@ -298,7 +298,7 @@ class SessionLogger:
             first_time = datetime.fromisoformat(first_event.replace('Z', '+00:00'))
             last_time = datetime.fromisoformat(last_event.replace('Z', '+00:00'))
             stats['session_duration'] = (last_time - first_time).total_seconds()
-        except:
+        except (TypeError, ValueError):
             pass
         
         for event in history:

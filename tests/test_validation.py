@@ -66,6 +66,14 @@ class TestCiscoCommandValidator:
         assert not result.is_valid  # Should have errors
         assert len(result.errors) >= 1
         assert len(result.warnings) >= 1
+
+    def test_validate_incomplete_config_context(self):
+        validator = CiscoCommandValidator()
+
+        result = validator.validate_commands(["interface"])
+
+        assert not result.is_valid
+        assert "requires an argument" in result.errors[0]
     
     def test_validate_exec_commands_in_config(self):
         """Test detection of exec commands in config context."""

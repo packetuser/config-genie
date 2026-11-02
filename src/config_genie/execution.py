@@ -267,29 +267,39 @@ class ExecutionManager:
     
     def _filter_config_commands(self, commands: List[str]) -> List[str]:
         """Filter out configuration commands."""
-        config_commands = []
-        for command in commands:
-            command = command.strip()
-            if not command or command.startswith('!'):
-                continue
-            
-            # Skip show commands and other exec commands (including abbreviations)
-            # 'config t' and 'configure terminal' are EXEC commands to enter config mode, not config commands
-            if not command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'telnet', 'ssh', 'display', 'dis ', 'enable', 'exit', 'quit', 'config', 'conf ')):
-                config_commands.append(command)
-        
+        config_commands, _ = self._classify_commands(commands)
         return config_commands
     
     def _filter_show_commands(self, commands: List[str]) -> List[str]:
         """Filter out show/exec commands."""
+        _, show_commands = self._classify_commands(commands)
+        return show_commands
+
+    def _classify_commands(self, commands: List[str]) -> Tuple[List[str], List[str]]:
+        """Classify commands, keeping exit/quit in config when context requires it."""
+        config_commands = []
         show_commands = []
+        config_context_seen = False
+        exec_prefixes = (
+            'show', 'sh ', 'ping', 'traceroute', 'tr ', 'telnet', 'ssh',
+            'display', 'dis ', 'enable', 'config', 'conf '
+        )
+
         for command in commands:
             command = command.strip()
-            # Support common Cisco abbreviations and exec commands
-            if command.lower().startswith(('show', 'sh ', 'ping', 'traceroute', 'tr ', 'display', 'dis ', 'enable', 'exit', 'quit', 'config', 'conf ')):
+            if not command or command.startswith('!'):
+                continue
+
+            lowered = command.lower()
+            if lowered in ('exit', 'quit') and config_context_seen:
+                config_commands.append(command)
+            elif lowered.startswith(exec_prefixes) or lowered in ('exit', 'quit'):
                 show_commands.append(command)
-        
-        return show_commands
+            else:
+                config_commands.append(command)
+                config_context_seen = True
+
+        return config_commands, show_commands
     
     def _generate_rollback_commands(self, commands: List[str]) -> List[str]:
         """Generate rollback commands for the given commands."""
