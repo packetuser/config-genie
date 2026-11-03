@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `connect <ip>` — connect by IP address (e.g. `connect 192.168.1.1`), matching an inventory device with that IP if one exists, or connecting directly if it isn't in the inventory. Works alongside device names in comma-separated lists (e.g. `connect sw01,192.168.1.5`). New `Inventory.get_device_by_ip()` and `is_ip_address()` helpers back this
 
 ### Changed
+- Constrained Paramiko to `>=3.4.0,<5.0.0` to exclude Terrapin-affected releases and avoid Paramiko 5's removal of SHA-1 key exchange/RSA signatures; this range still includes Paramiko 4.x versions affected by CVE-2026-44405
 - Replaced `connect pick`'s ambiguous `[x]` checkbox with a distinct symbol per state, so "already connected" and "will connect" are never conflated: `✓` = already connected and staying that way, `+` = not yet connected but will be on Enter, `✗` = currently connected but will be disconnected (unchecked), blank = untouched
 - Removed decorative emoji from README section headings, keeping plain text and simple symbols (e.g. `✓`/`✗`)
 - `connect` now disconnects any existing sessions before connecting by default, so you always end up connected to exactly the devices you just selected instead of accumulating connections across repeated `connect` calls. Use `connect add ...` (or bare `connect add` to retry devices that previously failed) to keep existing connections and add to them instead
